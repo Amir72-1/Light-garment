@@ -172,9 +172,73 @@ p {
 h1 {
   max-width: 820px;
   margin-bottom: 22px;
-  font-size: clamp(3rem, 7vw, 6.7rem);
-  line-height: 0.92;
-  letter-spacing: -0.08em;
+  font-size: clamp(3.4rem, 8vw, 7.8rem);
+  line-height: 0.86;
+  letter-spacing: -0.09em;
+}
+
+.company-title {
+  margin-bottom: 24px;
+}
+
+.company-title span {
+  display: block;
+}
+
+.company-title .title-light,
+.company-title .title-garment {
+  position: relative;
+  width: fit-content;
+  color: transparent;
+  background: linear-gradient(115deg, var(--forest) 10%, var(--leaf) 48%, var(--gold) 88%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-weight: 950;
+  letter-spacing: -0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 16px 35px rgba(15, 77, 58, 0.14);
+}
+
+.company-title .title-light {
+  font-size: clamp(4.3rem, 11vw, 10.8rem);
+}
+
+.company-title .title-garment {
+  margin-top: -0.16em;
+  padding-right: 0.08em;
+  font-size: clamp(4.5rem, 11.7vw, 11.4rem);
+}
+
+.company-title .title-garment::after {
+  position: absolute;
+  right: -0.06em;
+  bottom: 0.04em;
+  left: 0.04em;
+  z-index: -1;
+  height: 0.18em;
+  background: linear-gradient(90deg, rgba(216, 155, 61, 0.85), rgba(44, 140, 98, 0.35));
+  border-radius: 999px;
+  content: "";
+}
+
+.company-title .title-subline {
+  max-width: 720px;
+  margin-top: 16px;
+  color: var(--ink);
+  font-size: clamp(1.6rem, 3vw, 3.2rem);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+}
+
+.hero-tagline {
+  max-width: 700px;
+  margin-bottom: 16px;
+  color: var(--forest);
+  font-size: clamp(1.4rem, 2.2vw, 2.2rem);
+  font-weight: 850;
+  line-height: 1.12;
+  letter-spacing: -0.04em;
 }
 
 h2 {
@@ -605,6 +669,15 @@ textarea:focus {
 
   h1 {
     font-size: clamp(2.8rem, 16vw, 4.7rem);
+  }
+
+  .company-title .title-light,
+  .company-title .title-garment {
+    font-size: clamp(3.4rem, 18vw, 5.8rem);
+  }
+
+  .company-title .title-subline {
+    font-size: clamp(1.35rem, 8vw, 2.35rem);
   }
 
   .hero-actions,
