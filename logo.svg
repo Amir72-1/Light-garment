@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 900" role="img" aria-labelledby="logo-title logo-desc">
+  <title id="logo-title">Light Garment Manufacturing PLC logo</title>
+  <desc id="logo-desc">A yellow lightbulb with a shirt collar inside, decorative rays, and Light Garments Clothing text.</desc>
+  <defs>
+    <linearGradient id="bulbGradient" x1="220" x2="510" y1="140" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe36e" />
+      <stop offset="0.55" stop-color="#ffc528" />
+      <stop offset="1" stop-color="#f7a70e" />
+    </linearGradient>
+  </defs>
+  <rect width="720" height="900" fill="#fffdfa" />
+  <g fill="none" stroke="#172833" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M202 458c-42-58-58-124-38-195 22-82 94-141 178-148 106-9 200 63 219 167 12 68-4 128-47 180-29 36-47 75-54 120H257c-7-48-26-89-55-124Z" fill="url(#bulbGradient)" stroke-width="13" />
+    <path d="M286 268c43-18 93-18 136 0" stroke-width="10" />
+    <path d="M300 302c35-12 77-12 112 0" stroke-width="9" />
+    <path d="M315 337c27-8 58-8 84 0" stroke-width="8" />
+    <path d="M286 268 246 365l54-38 60 71 60-71 54 38-39-97" stroke-width="10" />
+    <path d="M360 398v55" stroke-width="10" />
+    <path d="M246 267 188 304" stroke-width="10" />
+    <path d="M474 267 532 304" stroke-width="10" />
+    <path d="M260 585h200" stroke-width="21" />
+    <path d="M270 625h180" stroke-width="21" />
+    <path d="M286 665h148" stroke-width="21" />
+    <path d="M312 705h96" stroke-width="21" />
+    <path d="M180 464c-60-42-111-35-137 20 59-29 105-8 132 63" stroke-width="8" />
+    <path d="M540 463c61-42 111-35 137 20-58-29-104-8-132 63" stroke-width="8" />
+    <path d="M582 385c47-10 57-64 18-71-31-5-40 35-10 47" stroke-width="8" />
+    <path d="M126 566c38 13 74-2 84-39" stroke-width="8" />
+  </g>
+  <g stroke="#ffc528" stroke-linecap="round" stroke-width="7">
+    <path d="M360 42v58" />
+    <path d="M278 56l20 55" />
+    <path d="M205 96l37 45" />
+    <path d="M148 156l49 30" />
+    <path d="M112 232l55 16" />
+    <path d="M96 315h58" />
+    <path d="M442 56l-20 55" />
+    <path d="M515 96l-37 45" />
+    <path d="M572 156l-49 30" />
+    <path d="M608 232l-55 16" />
+    <path d="M624 315h-58" />
+  </g>
+  <circle cx="155" cy="583" r="12" fill="#ffc528" />
+  <circle cx="184" cy="621" r="10" fill="#4b94a2" />
+  <circle cx="566" cy="520" r="12" fill="#ffc528" />
+  <circle cx="554" cy="568" r="9" fill="#4b94a2" />
+  <text x="360" y="795" fill="#172833" font-family="Georgia, 'Times New Roman', serif" font-size="76" font-weight="700" text-anchor="middle">Light Garments</text>
+  <g fill="#172833" font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle">
+    <text x="360" y="846" font-size="34" letter-spacing="14">CLOTHING</text>
+    <text x="360" y="888" font-size="31">+251 960890000 | lightgamf2@gmail.com</text>
+  </g>
+</svg>

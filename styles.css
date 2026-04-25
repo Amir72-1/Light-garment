@@ -79,6 +79,13 @@ svg {
   letter-spacing: -0.03em;
 }
 
+.brand-logo {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(15, 77, 58, 0.16));
+}
+
 .brand small {
   display: block;
   color: var(--muted);
@@ -151,6 +158,12 @@ svg {
   gap: 54px;
   align-items: center;
   min-height: calc(100vh - 84px);
+}
+
+.hero-logo {
+  width: min(220px, 42vw);
+  margin-bottom: 24px;
+  filter: drop-shadow(0 22px 34px rgba(15, 77, 58, 0.14));
 }
 
 .eyebrow {
