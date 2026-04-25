@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 900" role="img" aria-labelledby="logo-title logo-desc">
   <title id="logo-title">Light Garment Manufacturing PLC logo</title>
-  <desc id="logo-desc">A yellow lightbulb with a shirt collar inside, decorative rays, and Light Garments Clothing text.</desc>
+  <desc id="logo-desc">A yellow lightbulb with a shirt collar inside, decorative rays, and Light Garment Manufacturing PLC text.</desc>
   <defs>
     <linearGradient id="bulbGradient" x1="220" x2="510" y1="140" y2="520" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#ffe36e" />
@@ -44,9 +44,9 @@
   <circle cx="184" cy="621" r="10" fill="#4b94a2" />
   <circle cx="566" cy="520" r="12" fill="#ffc528" />
   <circle cx="554" cy="568" r="9" fill="#4b94a2" />
-  <text x="360" y="795" fill="#172833" font-family="Georgia, 'Times New Roman', serif" font-size="76" font-weight="700" text-anchor="middle">Light Garments</text>
+  <text x="360" y="795" fill="#172833" font-family="Georgia, 'Times New Roman', serif" font-size="76" font-weight="700" text-anchor="middle">Light Garment</text>
   <g fill="#172833" font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle">
-    <text x="360" y="846" font-size="34" letter-spacing="14">CLOTHING</text>
+    <text x="360" y="846" font-size="31" letter-spacing="9">MANUFACTURING PLC</text>
     <text x="360" y="888" font-size="31">+251 960890000 | lightgamf2@gmail.com</text>
   </g>
 </svg>
