@@ -6,6 +6,14 @@ const year = document.querySelector("#year");
 
 year.textContent = new Date().getFullYear();
 
+const resetQuoteForm = () => {
+  quoteForm.reset();
+  formStatus.textContent = "";
+};
+
+resetQuoteForm();
+window.addEventListener("pageshow", resetQuoteForm);
+
 navToggle.addEventListener("click", () => {
   const isOpen = navToggle.getAttribute("aria-expanded") === "true";
   navToggle.setAttribute("aria-expanded", String(!isOpen));
