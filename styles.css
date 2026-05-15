@@ -18,11 +18,16 @@
 
 html {
   scroll-behavior: smooth;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.6;
@@ -77,6 +82,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 28px;
+  min-width: 0;
 }
 
 .brand img {
@@ -89,12 +95,14 @@ textarea {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .brand span {
   display: grid;
   gap: 1px;
   line-height: 1;
+  min-width: 0;
 }
 
 .brand strong {
@@ -102,6 +110,7 @@ textarea {
   font-size: clamp(1.2rem, 2vw, 1.55rem);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .brand small {
@@ -110,6 +119,7 @@ textarea {
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .nav-links {
@@ -254,6 +264,7 @@ h3 {
   gap: 12px;
 }
 
+.trust-strip a,
 .trust-strip span,
 .country-list span {
   padding: 10px 14px;
@@ -485,6 +496,7 @@ h3 {
   grid-template-columns: 0.9fr 1.1fr;
   gap: 24px;
   padding: 86px 0;
+  min-width: 0;
 }
 
 .contact-card,
@@ -494,6 +506,7 @@ h3 {
   border: 1px solid rgba(17, 18, 20, 0.08);
   background: var(--white);
   box-shadow: 0 18px 50px rgba(17, 18, 20, 0.08);
+  min-width: 0;
 }
 
 .contact-methods {
@@ -780,6 +793,7 @@ h3 {
     padding: 0 18px;
   }
 
+  .trust-strip a,
   .trust-strip span,
   .country-list span {
     width: 100%;
