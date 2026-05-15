@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 360" role="img" aria-labelledby="title desc">
+  <title id="title">Albanjar logo mark</title>
+  <desc id="desc">Yellow and black Albanjar abstract A mark with airplane.</desc>
+  <defs>
+    <linearGradient id="gold" x1="35" x2="450" y1="10" y2="335" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe879" />
+      <stop offset=".48" stop-color="#f4d84d" />
+      <stop offset="1" stop-color="#dfbb24" />
+    </linearGradient>
+    <filter id="lift" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="5" dy="5" stdDeviation="3" flood-color="#111214" flood-opacity=".26" />
+    </filter>
+  </defs>
+  <g filter="url(#lift)">
+    <path d="M18 342 166 10 258 145 223 165 184 119 82 322z" fill="url(#gold)" />
+    <path d="M82 322c112-90 249-117 390-82l28 46c-153-35-285-22-418 36z" fill="url(#gold)" />
+  </g>
+  <path d="M125 285c58-82 119-145 224-171l20 54c-51 5-90 21-129 58l62 116h-78l-43-91z" fill="#111214" />
+  <path d="M315 87 502 36l-52 38 53 30-76-2-62 39-12-30-78-5z" fill="#111214" />
+  <g fill="none" stroke="#111214" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 342 166 10 258 145" stroke-width="4" opacity=".42" />
+    <path d="M82 322c112-90 249-117 390-82" stroke-width="4" opacity=".32" />
+  </g>
+</svg>
