@@ -25,6 +25,7 @@ body {
   color: var(--ink);
   background: var(--paper);
   line-height: 1.6;
+  overflow-x: hidden;
 }
 
 body.menu-open {
@@ -69,14 +70,20 @@ svg {
   max-width: 1180px;
   margin: 0 auto;
   padding: 18px 24px;
+  gap: 18px;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   gap: 12px;
   font-weight: 800;
   letter-spacing: -0.03em;
+}
+
+.brand > span {
+  min-width: 0;
 }
 
 .brand-logo {
@@ -109,6 +116,8 @@ svg {
 .nav-links {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -154,7 +163,7 @@ svg {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.95fr);
   gap: 54px;
   align-items: center;
   min-height: calc(100vh - 84px);
@@ -191,6 +200,7 @@ h1 {
 }
 
 .company-title {
+  max-width: 100%;
   margin-bottom: 24px;
 }
 
@@ -201,7 +211,8 @@ h1 {
 .company-title .title-light,
 .company-title .title-garment {
   position: relative;
-  width: fit-content;
+  width: max-content;
+  max-width: 100%;
   color: transparent;
   background: linear-gradient(115deg, var(--forest) 10%, var(--leaf) 48%, var(--gold) 88%);
   -webkit-background-clip: text;
@@ -307,7 +318,7 @@ h3 {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   max-width: 680px;
   margin: 0;
@@ -445,7 +456,7 @@ h3 {
 
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
 }
 
@@ -581,6 +592,7 @@ input,
 select,
 textarea {
   width: 100%;
+  min-height: 50px;
   padding: 15px 16px;
   color: var(--ink);
   background: #fbfaf7;
@@ -641,6 +653,10 @@ textarea:focus {
     padding-top: 64px;
   }
 
+  .hero-logo {
+    width: min(190px, 36vw);
+  }
+
   .hero-card {
     min-height: 500px;
   }
@@ -651,13 +667,40 @@ textarea:focus {
 }
 
 @media (max-width: 720px) {
+  .site-header {
+    position: sticky;
+  }
+
+  .nav {
+    padding: 12px 16px;
+  }
+
+  .brand {
+    gap: 10px;
+  }
+
+  .brand-logo {
+    width: 48px;
+    height: 48px;
+    flex: 0 0 auto;
+  }
+
+  .brand {
+    font-size: 0.98rem;
+  }
+
+  .brand small {
+    font-size: 0.66rem;
+  }
+
   .nav-toggle {
     display: block;
+    flex: 0 0 auto;
   }
 
   .nav-links {
     position: fixed;
-    inset: 84px 16px auto;
+    inset: 74px 16px auto;
     display: none;
     flex-direction: column;
     align-items: stretch;
@@ -677,20 +720,42 @@ textarea:focus {
   }
 
   .section-pad {
-    padding: 64px 18px;
+    padding: 56px 18px;
   }
 
-  h1 {
-    font-size: clamp(2.8rem, 16vw, 4.7rem);
+  .hero {
+    gap: 32px;
+    padding-top: 40px;
+  }
+
+  .hero-logo {
+    width: min(170px, 54vw);
+    margin-bottom: 18px;
   }
 
   .company-title .title-light,
   .company-title .title-garment {
-    font-size: clamp(3.4rem, 18vw, 5.8rem);
+    font-size: clamp(3rem, 17vw, 5.3rem);
+    letter-spacing: -0.1em;
   }
 
   .company-title .title-subline {
-    font-size: clamp(1.35rem, 8vw, 2.35rem);
+    margin-top: 12px;
+    font-size: clamp(1.2rem, 7vw, 2.1rem);
+    letter-spacing: -0.04em;
+  }
+
+  .hero-tagline {
+    font-size: clamp(1.2rem, 6vw, 1.7rem);
+  }
+
+  .hero-copy,
+  .intro > p,
+  .section-heading p,
+  .capability-panel p,
+  .quality-card p,
+  .contact-copy p {
+    font-size: 1rem;
   }
 
   .hero-actions,
@@ -702,6 +767,10 @@ textarea:focus {
   .stats,
   .service-grid {
     grid-template-columns: 1fr;
+  }
+
+  .button {
+    width: 100%;
   }
 
   .hero-card {
@@ -731,5 +800,115 @@ textarea:focus {
   .quality-card,
   .contact-form {
     padding: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav {
+    padding-inline: 12px;
+  }
+
+  .brand-logo {
+    width: 42px;
+    height: 42px;
+  }
+
+  .brand {
+    font-size: 0.9rem;
+  }
+
+  .brand small {
+    font-size: 0.6rem;
+    letter-spacing: 0.03em;
+  }
+
+  .nav-toggle {
+    width: 42px;
+    height: 42px;
+  }
+
+  .nav-links {
+    inset: 66px 10px auto;
+  }
+
+  .section-pad {
+    padding: 44px 14px;
+  }
+
+  .hero {
+    padding-top: 30px;
+  }
+
+  .company-title {
+    margin-bottom: 18px;
+  }
+
+  .company-title .title-light,
+  .company-title .title-garment {
+    font-size: clamp(2.65rem, 16vw, 4.1rem);
+  }
+
+  .company-title .title-subline {
+    font-size: clamp(1.05rem, 6.6vw, 1.55rem);
+  }
+
+  h2 {
+    font-size: clamp(1.85rem, 10vw, 2.75rem);
+  }
+
+  .stats div,
+  .service-card,
+  .quality-points div,
+  .timeline div {
+    padding: 20px;
+    border-radius: 22px;
+  }
+
+  .hero-card {
+    min-height: 340px;
+    border-radius: 26px;
+  }
+
+  .fabric-card {
+    width: 122px;
+    height: 148px;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .card-one {
+    top: 34px;
+    left: 16px;
+  }
+
+  .card-two {
+    top: 78px;
+    right: 14px;
+  }
+
+  .card-three {
+    right: 66px;
+    bottom: 118px;
+  }
+
+  .inspection-card {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .inspection-card strong {
+    font-size: 1.2rem;
+  }
+
+  .contact-form {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .site-footer {
+    padding: 24px 14px;
   }
 }
