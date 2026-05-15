@@ -1,27 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 240" role="img" aria-labelledby="title desc">
-  <title id="title">Albanjar Foreign Employment Agency</title>
-  <desc id="desc">Yellow and black Albanjar Foreign Employment Agency logo with abstract aircraft mark.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 360" role="img" aria-labelledby="title desc">
+  <title id="title">Albanjar logo mark</title>
+  <desc id="desc">Yellow and black Albanjar abstract A mark with airplane.</desc>
   <defs>
-    <linearGradient id="gold" x1="40" x2="330" y1="24" y2="194" gradientUnits="userSpaceOnUse">
+    <linearGradient id="gold" x1="35" x2="450" y1="10" y2="335" gradientUnits="userSpaceOnUse">
       <stop stop-color="#ffe879" />
-      <stop offset="1" stop-color="#e3b91c" />
+      <stop offset=".48" stop-color="#f4d84d" />
+      <stop offset="1" stop-color="#dfbb24" />
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#111214" flood-opacity=".18" />
+    <filter id="lift" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="5" dy="5" stdDeviation="3" flood-color="#111214" flood-opacity=".26" />
     </filter>
   </defs>
-  <rect width="780" height="240" rx="30" fill="#fffdf7" />
-  <g filter="url(#shadow)">
-    <path d="M50 178 308 28 254 204 185 153 98 196z" fill="url(#gold)" stroke="#111214" stroke-width="5.5" stroke-linejoin="round" />
-    <path d="M98 196 185 153 254 204 174 104z" fill="#f5cd3d" stroke="#111214" stroke-width="5.5" stroke-linejoin="round" />
-    <path d="M174 104 308 28 185 153z" fill="#fff2a4" stroke="#111214" stroke-width="5.5" stroke-linejoin="round" />
-    <path d="M145 95 101 31 148 46 179 15 172 68 226 82z" fill="#111214" />
-    <path d="M238 82 286 61 278 88 316 96 272 107 248 139z" fill="#111214" />
+  <g filter="url(#lift)">
+    <path d="M18 342 166 10 258 145 223 165 184 119 82 322z" fill="url(#gold)" />
+    <path d="M82 322c112-90 249-117 390-82l28 46c-153-35-285-22-418 36z" fill="url(#gold)" />
   </g>
-  <g fill="#111214">
-    <text x="342" y="88" font-family="Georgia, 'Times New Roman', serif" font-size="56" font-weight="700" letter-spacing="2">ALBANJAR</text>
-    <text x="345" y="128" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="900" letter-spacing="3.5">FOREIGN EMPLOYMENT AGENCY</text>
-    <text x="345" y="166" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="900">+252 613 831 414</text>
+  <path d="M125 285c58-82 119-145 224-171l20 54c-51 5-90 21-129 58l62 116h-78l-43-91z" fill="#111214" />
+  <path d="M315 87 502 36l-52 38 53 30-76-2-62 39-12-30-78-5z" fill="#111214" />
+  <g fill="none" stroke="#111214" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 342 166 10 258 145" stroke-width="4" opacity=".42" />
+    <path d="M82 322c112-90 249-117 390-82" stroke-width="4" opacity=".32" />
   </g>
-  <path d="M345 184h306" stroke="#f4cd43" stroke-width="10" stroke-linecap="round" />
 </svg>
