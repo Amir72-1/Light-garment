@@ -36,7 +36,7 @@ inquiryForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  const text = encodeURIComponent(`Jaybil inquiry\nName: ${name}\nType: ${type}\nMessage: ${message}`);
+  const text = encodeURIComponent(`Albanjar inquiry\nName: ${name}\nType: ${type}\nMessage: ${message}`);
   formStatus.textContent = "Opening WhatsApp with your prepared message.";
   window.location.href = `https://wa.me/252613831414?text=${text}`;
 });
