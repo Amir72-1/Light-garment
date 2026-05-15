@@ -18,3 +18,7 @@ python3 -m http.server 4173
 ```
 
 Then open `http://localhost:4173`.
+
+## Publishing
+
+The site is configured for the custom domain `alabanjaragency.com.et` through the `CNAME` file.
