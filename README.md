@@ -1,6 +1,6 @@
 # Albanjar Foreign Employment Agency
 
-A professional one-page website for an international employment agency that places domestic and support staff in Arab countries and other approved markets.
+A professional one-page website for an international employment agency that places domestic and support staff in foreign countries and other approved markets.
 
 ## Files
 
