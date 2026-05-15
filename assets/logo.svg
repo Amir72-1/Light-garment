@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" role="img" aria-labelledby="title desc">
+  <title id="title">Jaybil Employment Agency</title>
+  <desc id="desc">Yellow and black Jaybil Employment Agency logo with paper plane mark.</desc>
+  <defs>
+    <linearGradient id="gold" x1="40" x2="330" y1="24" y2="194" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe879" />
+      <stop offset="1" stop-color="#e3b91c" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#111214" flood-opacity=".18" />
+    </filter>
+  </defs>
+  <rect width="640" height="220" rx="28" fill="#fffdf7" />
+  <g filter="url(#shadow)">
+    <path d="M54 166 286 32 238 187 177 143 98 184z" fill="url(#gold)" stroke="#111214" stroke-width="5" stroke-linejoin="round" />
+    <path d="M98 184 177 143 238 187 167 100z" fill="#f5cd3d" stroke="#111214" stroke-width="5" stroke-linejoin="round" />
+    <path d="M167 100 286 32 177 143z" fill="#fff2a4" stroke="#111214" stroke-width="5" stroke-linejoin="round" />
+    <path d="M149 92 110 36 150 49 176 22 171 68 215 79z" fill="#111214" />
+  </g>
+  <g fill="#111214">
+    <text x="326" y="82" font-family="Georgia, 'Times New Roman', serif" font-size="58" font-weight="700" letter-spacing="3">JAYBIL</text>
+    <text x="328" y="120" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="800" letter-spacing="4">EMPLOYMENT AGENCY</text>
+    <text x="328" y="156" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="800">+252 613 831 414</text>
+  </g>
+  <path d="M328 172h238" stroke="#f4cd43" stroke-width="9" stroke-linecap="round" />
+</svg>
