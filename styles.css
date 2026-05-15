@@ -613,9 +613,7 @@ h3 {
   .hero {
     padding-top: 56px;
   }
-}
 
-@media (max-width: 720px) {
   .nav {
     width: min(100% - 28px, 1160px);
     min-height: 76px;
@@ -667,6 +665,15 @@ h3 {
   .hero {
     gap: 34px;
     padding-bottom: 48px;
+  }
+
+  .hero-actions {
+    display: grid;
+    max-width: 360px;
+  }
+
+  .button {
+    width: 100%;
   }
 
   .stats,
