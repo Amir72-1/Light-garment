@@ -38,5 +38,5 @@ inquiryForm?.addEventListener("submit", (event) => {
 
   const text = encodeURIComponent(`Albanjar inquiry\nName: ${name}\nType: ${type}\nMessage: ${message}`);
   formStatus.textContent = "Opening WhatsApp with your prepared message.";
-  window.location.href = `https://wa.me/252613831414?text=${text}`;
+  window.location.href = `https://wa.me/251911387417?text=${text}`;
 });
