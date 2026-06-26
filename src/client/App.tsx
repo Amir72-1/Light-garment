@@ -11,7 +11,8 @@ import {
   PackagePlus,
   Settings,
   Shirt,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
@@ -181,52 +182,78 @@ function Employees({ token }: { token: string }) {
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-      <div className="grid gap-6">
-        <Card>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500">Register, search, filter, profile, and attendance.</p></div>
-            <div className="grid gap-2 md:grid-cols-2">
-              <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
-              <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
-                <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
-              </Select>
-            </div>
-          </div>
-        </Card>
-        <div className="grid gap-4">
-          {employees.data?.data.map((employee) => (
-            <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
-              <button className="flex items-center gap-4 text-left" onClick={() => setSelected(employee)}>
-                <Avatar employee={employee} />
-                <div>
-                  <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
-                  <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
-                  <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
-                </div>
-              </button>
-              <div className="flex flex-wrap gap-2 md:justify-end">
-                <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
-                <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
-                <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>Delete</Button>
+    <>
+      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+        <div className="grid gap-6">
+          <Card>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500">Register, search, filter, profile, and attendance.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
+                  <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
+                </Select>
               </div>
-            </Card>
-          ))}
-        </div>
-        <Card>
-          <h3 className="text-lg font-bold">Daily attendance log</h3>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
-              <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.workDate}</td><td>{record.checkInAt ? new Date(record.checkInAt).toLocaleTimeString() : "-"}</td><td>{record.checkOutAt ? new Date(record.checkOutAt).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
-            </table>
+            </div>
+          </Card>
+          <div className="grid gap-4">
+            {employees.data?.data.map((employee) => (
+              <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" onClick={() => setSelected(employee)}>
+                  <Avatar employee={employee} />
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
+                    <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
+                    <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
+                  </div>
+                </button>
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
+                  <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
+                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>Delete</Button>
+                </div>
+              </Card>
+            ))}
           </div>
-        </Card>
+          <Card>
+            <h3 className="text-lg font-bold">Daily attendance log</h3>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
+                <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.workDate}</td><td>{record.checkInAt ? new Date(record.checkInAt).toLocaleTimeString() : "-"}</td><td>{record.checkOutAt ? new Date(record.checkOutAt).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+        <div className="grid gap-6 self-start">
+          <EmployeeForm pending={createEmployee.isPending} onSubmit={(form) => createEmployee.mutate(form)} />
+        </div>
       </div>
-      <div className="grid gap-6">
-        <EmployeeForm pending={createEmployee.isPending} onSubmit={(form) => createEmployee.mutate(form)} />
-        {selected && <EmployeeProfile employee={selected} />}
-      </div>
+      {selected && (
+        <EmployeeProfileDialog employee={selected} onClose={() => setSelected(null)} />
+      )}
+    </>
+  );
+}
+
+function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="employee-profile-title" className="text-xl font-black">Employee profile</h3>
+            <p className="text-sm text-slate-500">Full HR record for {employee.fullName}.</p>
+          </div>
+          <Button variant="ghost" className="h-9 w-9 px-0" aria-label="Close employee profile" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
+        <dl className="mt-4 grid gap-2 text-sm">
+          {Object.entries({ Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
+        </dl>
+      </Card>
     </div>
   );
 }
@@ -237,7 +264,11 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
       <h3 className="text-lg font-bold">Add employee</h3>
       <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
         <Field label="Full name"><Input name="fullName" required /></Field>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Phone"><Input name="phoneNumber" required /></Field><Field label="Email"><Input name="email" type="email" /></Field></div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Phone"><Input name="phoneNumber" required /></Field>
+          <Field label="Email (optional)"><Input name="email" type="email" placeholder="Leave blank if none" /></Field>
+        </div>
+        <p className="-mt-2 text-xs text-slate-500">Employees can be registered without an email address.</p>
         <Field label="Address"><Textarea name="address" rows={2} required /></Field>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Gender"><Select name="gender" required><option>Female</option><option>Male</option><option>Other</option></Select></Field><Field label="Date of birth"><Input name="dateOfBirth" type="date" required /></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Position"><Input name="position" required placeholder="Tailor" /></Field><Field label="Department"><Select name="department" required><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option></Select></Field></div>
@@ -246,18 +277,6 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
         <Field label="Profile picture"><Input name="profilePicture" type="file" accept="image/*" /></Field>
         <Button disabled={pending}>{pending ? "Saving..." : "Register employee"}</Button>
       </form>
-    </Card>
-  );
-}
-
-function EmployeeProfile({ employee }: { employee: Employee }) {
-  return (
-    <Card>
-      <h3 className="text-lg font-bold">Employee profile</h3>
-      <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
-      <dl className="mt-4 grid gap-2 text-sm">
-        {Object.entries({ Phone: employee.phoneNumber, Email: employee.email || "-", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="font-semibold text-right">{value}</dd></div>)}
-      </dl>
     </Card>
   );
 }
