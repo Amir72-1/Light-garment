@@ -466,6 +466,21 @@ export class PrismaRepository {
     });
   }
 
+  async markSalePaid(saleId: string, amountPaid?: number, paymentMethod?: Sale["paymentMethod"]) {
+    const existing = await this.prisma.sale.findUnique({ where: { id: saleId } });
+    if (!existing) return null;
+    const nextAmountPaid = amountPaid ?? Number(existing.total);
+    await this.prisma.sale.update({
+      where: { id: saleId },
+      data: {
+        amountPaid: nextAmountPaid,
+        paymentMethod: paymentMethod ? methodToDb[paymentMethod] as any : undefined,
+        paymentStatus: paymentToDb[nextAmountPaid >= Number(existing.total) ? "Paid" : nextAmountPaid > 0 ? "Partial" : "Pending"] as any
+      }
+    });
+    return (await this.listSales()).find((item) => item.id === saleId) ?? null;
+  }
+
   async reports() {
     const [employees, attendance, products, sales] = await Promise.all([this.prisma.employee.findMany(), this.listAttendance(), this.prisma.product.findMany(), this.listSales()]);
     const revenue = sales.reduce((sum, sale) => sum + sale.total, 0);

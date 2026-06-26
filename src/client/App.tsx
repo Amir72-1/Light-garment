@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, Employee, Product, RawMaterial, RoleName, UserSession } from "../shared/types";
+import type { AttendanceRecord, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 
@@ -488,8 +488,23 @@ function Sales({ token }: { token: string }) {
   const sales = useQuery({ queryKey: ["sales"], queryFn: () => api.sales(token) });
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState<Sale["paymentMethod"]>("Cash");
   const selected = products.data?.find((product) => product.id === productId) || products.data?.[0];
-  const createSale = useMutation({ mutationFn: () => api.createSale(token, { customerName: "Walk-in customer", items: [{ productId: selected?.id, quantity }], amountPaid: (selected?.sellingPrice || 0) * quantity, paymentMethod: "Cash" }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sales"] }); queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
+  const total = (selected?.sellingPrice || 0) * quantity;
+  const invalidateSales = () => {
+    queryClient.invalidateQueries({ queryKey: ["sales"] });
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
+  const createSale = useMutation({
+    mutationFn: (paid: boolean) => api.createSale(token, { customerName: "Walk-in customer", items: [{ productId: selected?.id, quantity }], amountPaid: paid ? total : 0, paymentMethod }),
+    onSuccess: invalidateSales
+  });
+  const markPaid = useMutation({
+    mutationFn: (sale: Sale) => api.markSalePaid(token, sale.id, { amountPaid: sale.total, paymentMethod: sale.paymentMethod || paymentMethod }),
+    onSuccess: invalidateSales
+  });
+  const unpaidSales = sales.data?.filter((sale) => sale.paymentStatus !== "Paid") ?? [];
   return (
     <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
       <Card>
@@ -497,17 +512,30 @@ function Sales({ token }: { token: string }) {
         <div className="mt-4 grid gap-3">
           <Field label="Product"><Select value={selected?.id || ""} onChange={(event) => setProductId(event.target.value)}>{products.data?.map((product) => <option key={product.id} value={product.id}>{product.productName} - {currency(product.sellingPrice)}</option>)}</Select></Field>
           <Field label="Quantity"><Input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></Field>
-          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-sm text-emerald-700">Invoice total</p><p className="text-3xl font-black">{currency((selected?.sellingPrice || 0) * quantity)}</p></div>
-          <Button disabled={!selected || createSale.isPending} onClick={() => createSale.mutate()}>Generate invoice</Button>
+          <Field label="Payment method"><Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as Sale["paymentMethod"])}><option>Cash</option><option>Card</option><option>Bank transfer</option><option>Mobile money</option></Select></Field>
+          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-sm text-emerald-700">Invoice total</p><p className="text-3xl font-black">{currency(total)}</p></div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button disabled={!selected || createSale.isPending} onClick={() => createSale.mutate(true)}>Generate paid invoice</Button>
+            <Button variant="secondary" disabled={!selected || createSale.isPending} onClick={() => createSale.mutate(false)}>Save unpaid sale</Button>
+          </div>
           {createSale.error && <p className="text-sm text-rose-700">{createSale.error.message}</p>}
         </div>
       </Card>
       <Card>
-        <h2 className="text-xl font-black">Recent invoices</h2>
-        <div className="mt-4 grid gap-3">{sales.data?.map((sale) => <div key={sale.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex justify-between"><b>{sale.invoiceNumber}</b><Badge>{sale.paymentStatus}</Badge></div><p className="mt-2 text-sm text-slate-500">{sale.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</p><p className="mt-2 font-black">{currency(sale.total)}</p></div>)}</div>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Recent invoices</h2>
+            <p className="text-sm text-slate-500">{unpaidSales.length} unpaid invoice{unpaidSales.length === 1 ? "" : "s"} awaiting payment.</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3">{sales.data?.map((sale) => <div key={sale.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b>{sale.invoiceNumber}</b><SaleStatusBadge status={sale.paymentStatus} /></div><p className="mt-2 text-sm text-slate-500">{sale.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><div><p className="font-black">{currency(sale.total)}</p><p className="text-xs text-slate-500">Paid {currency(sale.amountPaid)} · {sale.paymentMethod}</p></div>{sale.paymentStatus !== "Paid" && <Button disabled={markPaid.isPending} onClick={() => markPaid.mutate(sale)}>Mark paid</Button>}</div></div>)}</div>
       </Card>
     </div>
   );
+}
+
+function SaleStatusBadge({ status }: { status: Sale["paymentStatus"] }) {
+  return <Badge className={cn(status === "Paid" && "bg-emerald-100 text-emerald-800", status === "Pending" && "bg-amber-100 text-amber-800", status === "Partial" && "bg-sky-100 text-sky-800")}>{status === "Pending" ? "Unpaid" : status}</Badge>;
 }
 
 function Production({ token }: { token: string }) {

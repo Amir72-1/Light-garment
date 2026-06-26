@@ -480,6 +480,16 @@ export class DemoRepository {
     return sale;
   }
 
+  async markSalePaid(saleId: string, amountPaid?: number, paymentMethod?: Sale["paymentMethod"]) {
+    const sale = this.sales.find((item) => item.id === saleId);
+    if (!sale) return null;
+    sale.amountPaid = amountPaid ?? sale.total;
+    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
+    sale.paymentStatus = sale.amountPaid >= sale.total ? "Paid" : sale.amountPaid > 0 ? "Partial" : "Pending";
+    this.log(`Invoice ${sale.invoiceNumber} marked ${sale.paymentStatus}`);
+    return sale;
+  }
+
   async reports() {
     const inventoryValue = this.products.reduce((sum, product) => sum + product.quantity * product.costPrice, 0);
     const salesRevenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);

@@ -146,4 +146,29 @@ describe("Light Garment ERP API", () => {
     const nextProduct = nextProducts.body.find((item: { id: string }) => item.id === product.id);
     expect(nextProduct.quantity).toBe(product.quantity - 2);
   });
+
+  it("creates unpaid POS invoices and marks them paid later", async () => {
+    const { app, token } = await login();
+    const products = await request(app).get("/api/products").set("Authorization", `Bearer ${token}`).expect(200);
+    const product = products.body[0];
+
+    const unpaid = await request(app)
+      .post("/api/sales")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ customerName: "Credit customer", items: [{ productId: product.id, quantity: 1 }], amountPaid: 0, paymentMethod: "Cash" })
+      .expect(201);
+
+    expect(unpaid.body.paymentStatus).toBe("Pending");
+    expect(unpaid.body.amountPaid).toBe(0);
+
+    const paid = await request(app)
+      .patch(`/api/sales/${unpaid.body.id}/pay`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amountPaid: unpaid.body.total, paymentMethod: "Mobile money" })
+      .expect(200);
+
+    expect(paid.body.paymentStatus).toBe("Paid");
+    expect(paid.body.amountPaid).toBe(unpaid.body.total);
+    expect(paid.body.paymentMethod).toBe("Mobile money");
+  });
 });

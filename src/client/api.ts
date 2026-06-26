@@ -57,6 +57,7 @@ export const api = {
   createRawMaterial: (token: string, body: Omit<RawMaterial, "id">) => request<RawMaterial>("/api/raw-materials", { method: "POST", body: JSON.stringify(body) }, token),
   sales: (token: string) => request<Sale[]>("/api/sales", {}, token),
   createSale: (token: string, body: Record<string, unknown>) => request<Sale>("/api/sales", { method: "POST", body: JSON.stringify(body) }, token),
+  markSalePaid: (token: string, id: string, body: Record<string, unknown>) => request<Sale>(`/api/sales/${id}/pay`, { method: "PATCH", body: JSON.stringify(body) }, token),
   production: (token: string) => request<ProductionStage[]>("/api/production", {}, token),
   updateProduction: (token: string, id: string, body: Partial<ProductionStage>) => request<ProductionStage>(`/api/production/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
   reports: (token: string) => request<Record<string, unknown>>("/api/reports", {}, token),

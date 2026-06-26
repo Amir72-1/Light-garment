@@ -45,7 +45,8 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 ## Sales POS
 
 - `GET /sales` - Invoice history.
-- `POST /sales` - Create invoice, track payment, and deduct stock.
+- `POST /sales` - Create invoice, track payment, and deduct stock. Use `amountPaid: 0` to save an unpaid sale.
+- `PATCH /sales/:id/pay` - Mark an unpaid or partially paid invoice paid with `{ amountPaid?, paymentMethod? }`.
 
 ## Production
 

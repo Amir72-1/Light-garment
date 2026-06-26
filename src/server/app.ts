@@ -80,6 +80,11 @@ const saleSchema = z.object({
   tax: z.coerce.number().nonnegative().optional()
 });
 
+const salePaymentSchema = z.object({
+  amountPaid: z.coerce.number().positive().optional(),
+  paymentMethod: z.enum(["Cash", "Card", "Bank transfer", "Mobile money"]).optional()
+});
+
 const stockSchema = z.object({
   productId: z.string(),
   quantity: z.coerce.number().int().positive(),
@@ -323,6 +328,12 @@ export async function createApp() {
 
   app.post("/api/sales", auth, allow("Owner", "Manager", "Salesperson"), asyncRoute(async (request, response) => {
     response.status(201).json(await repository.createSale(saleSchema.parse(request.body)));
+  }));
+
+  app.patch("/api/sales/:id/pay", auth, allow("Owner", "Manager", "Salesperson"), asyncRoute(async (request, response) => {
+    const parsed = salePaymentSchema.parse(request.body);
+    const sale = await repository.markSalePaid(String(request.params.id), parsed.amountPaid, parsed.paymentMethod);
+    response.status(sale ? 200 : 404).json(sale ?? { message: "Sale not found" });
   }));
 
   app.get("/api/production", auth, allow("Owner", "Manager"), asyncRoute(async (_request, response) => {
