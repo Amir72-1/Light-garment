@@ -5,9 +5,11 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type {
   AttendanceRecord,
+  AttendanceStats,
   DashboardMetrics,
   Department,
   Employee,
+  EmployeeAttendanceProfile,
   EmploymentType,
   Gender,
   InventoryMovement,
@@ -50,15 +52,12 @@ const stageFromDb: Record<string, ProductionStage["stage"]> = { FABRIC: "Fabric"
 const stageStatusFromDb: Record<string, ProductionStage["status"]> = { PENDING: "Pending", IN_PROGRESS: "In progress", COMPLETED: "Completed", BLOCKED: "Blocked" };
 const stageStatusToDb: Record<ProductionStage["status"], string> = { Pending: "PENDING", "In progress": "IN_PROGRESS", Completed: "COMPLETED", Blocked: "BLOCKED" };
 const rawCategoryFromDb: Record<string, RawMaterial["category"]> = { FABRIC: "Fabric", THREAD: "Thread", BUTTONS: "Buttons", LABELS: "Labels", PACKAGING: "Packaging" };
+const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late" };
+const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE" };
+const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
 
 function isoDate(value: Date | string) {
   return new Date(value).toISOString().slice(0, 10);
-}
-
-function dayStart() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
 }
 
 function employeeFromDb(row: any): Employee {
@@ -78,6 +77,56 @@ function employeeFromDb(row: any): Employee {
     employmentType: employmentFromDb[row.employmentType],
     hireDate: isoDate(row.hireDate),
     status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"]
+  };
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isLate(checkInTime: string) {
+  const time = new Date(checkInTime).toTimeString().slice(0, 5);
+  return time > startTime;
+}
+
+function totalHours(checkInTime?: string | null, checkOutTime?: string | null) {
+  if (!checkInTime || !checkOutTime) return undefined;
+  const hours = (new Date(checkOutTime).getTime() - new Date(checkInTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(hours * 100) / 100);
+}
+
+function workingDaysInMonth(month: string) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const days = new Date(year, monthIndex, 0).getDate();
+  return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
+}
+
+function attendanceFromRow(row: any): AttendanceRecord {
+  return {
+    id: row.id,
+    employeeId: row.employeeId,
+    employeeName: row.employee.fullName,
+    employeeCode: row.employee.employeeCode,
+    department: departmentFromDb[row.employee.department],
+    position: row.employee.position,
+    date: row.date,
+    checkInTime: row.checkInTime ?? undefined,
+    checkOutTime: row.checkOutTime ?? undefined,
+    status: attendanceFromDb[row.status],
+    totalHours: row.totalHours ?? undefined
+  };
+}
+
+function absentRecord(employee: any, date: string): AttendanceRecord {
+  return {
+    id: `absent-${employee.id}-${date}`,
+    employeeId: employee.id,
+    employeeName: employee.fullName,
+    employeeCode: employee.employeeCode,
+    department: departmentFromDb[employee.department],
+    position: employee.position,
+    date,
+    status: "Absent"
   };
 }
 
@@ -226,30 +275,92 @@ export class PrismaRepository {
     return true;
   }
 
-  async listAttendance() {
-    const rows = await this.prisma.attendance.findMany({ include: { employee: true }, orderBy: { workDate: "desc" } });
-    return rows.map((row): AttendanceRecord => ({ id: row.id, employeeId: row.employeeId, employeeName: row.employee.fullName, workDate: isoDate(row.workDate), checkInAt: row.checkInAt?.toISOString(), checkOutAt: row.checkOutAt?.toISOString(), status: row.checkOutAt ? "Present" : "Partial" }));
+  async listAttendance(date = todayKey()) {
+    return this.attendanceToday(date);
   }
 
-  async checkIn(employeeId: string) {
+  async attendanceToday(date = todayKey()) {
+    const [employees, rows] = await Promise.all([
+      this.prisma.employee.findMany({ orderBy: { fullName: "asc" } }),
+      this.prisma.attendance.findMany({ where: { date }, include: { employee: true } })
+    ]);
+    return employees.map((employee) => {
+      const existing = rows.find((row) => row.employeeId === employee.id);
+      return existing ? attendanceFromRow(existing) : absentRecord(employee, date);
+    });
+  }
+
+  async attendanceStats(date = todayKey()): Promise<AttendanceStats> {
+    const rows = await this.attendanceToday(date);
+    return {
+      date,
+      present: rows.filter((item) => item.status === "Present").length,
+      absent: rows.filter((item) => item.status === "Absent").length,
+      late: rows.filter((item) => item.status === "Late").length
+    };
+  }
+
+  async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
-    const row = await this.prisma.attendance.upsert({
-      where: { employeeId_workDate: { employeeId, workDate: dayStart() } },
-      update: { checkInAt: new Date(), status: "PRESENT" },
-      create: { employeeId, workDate: dayStart(), checkInAt: new Date(), status: "PRESENT" },
-      include: { employee: true }
+    const rows = await this.prisma.attendance.findMany({
+      where: { employeeId, date: { startsWith: month } },
+      include: { employee: true },
+      orderBy: { date: "asc" }
     });
-    return { id: row.id, employeeId, employeeName: row.employee.fullName, workDate: isoDate(row.workDate), checkInAt: row.checkInAt?.toISOString(), checkOutAt: row.checkOutAt?.toISOString(), status: "Present" as const };
+    const records = rows.map(attendanceFromRow);
+    const totalWorkingDays = workingDaysInMonth(month).length;
+    const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
+    return { employee: employeeFromDb(employee), month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
   }
 
-  async checkOut(employeeId: string) {
+  async checkIn(employeeId: string, date = todayKey(), checkInTime = new Date().toISOString()) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) return null;
+    const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
+    if (existing?.checkInTime) throw new Error("Employee already checked in today");
+    const row = await this.prisma.attendance.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: { checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
+      create: { employeeId, date, checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
+      include: { employee: true }
+    });
+    return attendanceFromRow(row);
+  }
+
+  async checkOut(employeeId: string, date = todayKey(), checkOutTime = new Date().toISOString()) {
+    const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
     const row = await this.prisma.attendance.update({
-      where: { employeeId_workDate: { employeeId, workDate: dayStart() } },
-      data: { checkOutAt: new Date(), status: "PRESENT" },
+      where: { employeeId_date: { employeeId, date } },
+      data: { checkOutTime, totalHours: totalHours(existing?.checkInTime, checkOutTime) },
       include: { employee: true }
     }).catch(() => null);
-    return row ? { id: row.id, employeeId, employeeName: row.employee.fullName, workDate: isoDate(row.workDate), checkInAt: row.checkInAt?.toISOString(), checkOutAt: row.checkOutAt?.toISOString(), status: "Present" as const } : null;
+    return row ? attendanceFromRow(row) : null;
+  }
+
+  async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: input.employeeId } });
+    if (!employee) return null;
+    const date = input.date || todayKey();
+    const row = await this.prisma.attendance.upsert({
+      where: { employeeId_date: { employeeId: input.employeeId, date } },
+      update: {
+        status: attendanceToDb[input.status] as any,
+        checkInTime: input.checkInTime,
+        checkOutTime: input.checkOutTime,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+      },
+      create: {
+        employeeId: input.employeeId,
+        date,
+        status: attendanceToDb[input.status] as any,
+        checkInTime: input.checkInTime,
+        checkOutTime: input.checkOutTime,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+      },
+      include: { employee: true }
+    });
+    return attendanceFromRow(row);
   }
 
   async listProducts() {

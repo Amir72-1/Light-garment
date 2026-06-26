@@ -21,9 +21,17 @@ All routes except health, login, and password reset require `Authorization: Bear
 - `GET /employees/:id` - Employee profile.
 - `PUT /employees/:id` - Multipart employee update with optional `profilePicture`.
 - `DELETE /employees/:id` - Delete employee.
-- `GET /attendance` - Daily attendance log.
-- `POST /attendance/:employeeId/check-in` - Check an employee in for today.
-- `POST /attendance/:employeeId/check-out` - Check an employee out for today.
+
+## Attendance
+
+Owner and HR/Admin have full attendance access. Manager can view and check employees in/out. Storekeeper and Salesperson cannot access attendance APIs.
+
+- `POST /attendance/check-in` - Mark employee check-in with `{ employeeId, date?, time? }`; late status is applied after the configured start time.
+- `POST /attendance/check-out` - Mark employee check-out with `{ employeeId, date?, time? }` and calculate `totalHours`.
+- `POST /attendance/manual` - Owner/HR manual edit with `{ employeeId, date, status, checkInTime?, checkOutTime? }`.
+- `GET /attendance/today?date=YYYY-MM-DD` - List all employees and attendance status for a day.
+- `GET /attendance/month/:employeeId?month=YYYY-MM` - Employee monthly attendance profile.
+- `GET /attendance/stats?date=YYYY-MM-DD` - Present, absent, and late summary counts.
 
 ## Shirts, Inventory, and Raw Materials
 

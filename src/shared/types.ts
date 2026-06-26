@@ -37,10 +37,29 @@ export interface AttendanceRecord {
   id: string;
   employeeId: string;
   employeeName: string;
-  workDate: string;
-  checkInAt?: string;
-  checkOutAt?: string;
-  status: "Present" | "Partial" | "Absent";
+  employeeCode?: string;
+  department?: Department;
+  position?: string;
+  date: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  status: "Present" | "Absent" | "Late";
+  totalHours?: number;
+}
+
+export interface AttendanceStats {
+  present: number;
+  absent: number;
+  late: number;
+  date: string;
+}
+
+export interface EmployeeAttendanceProfile {
+  employee: Employee;
+  month: string;
+  records: AttendanceRecord[];
+  attendancePercentage: number;
+  totalWorkingDays: number;
 }
 
 export interface Product {

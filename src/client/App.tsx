@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
   Boxes,
+  CalendarCheck,
   Factory,
   FileBarChart,
   LayoutDashboard,
@@ -16,13 +17,14 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { Employee, Product, RoleName, UserSession } from "../shared/types";
+import type { AttendanceRecord, Employee, Product, RoleName, UserSession } from "../shared/types";
 
-type ModuleKey = "dashboard" | "employees" | "inventory" | "sales" | "production" | "reports" | "settings";
+type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 
 const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
   { key: "employees", label: "Employees", icon: Users, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["Owner", "Manager", "HR/Admin"] },
   { key: "inventory", label: "Shirts & Inventory", icon: Shirt, roles: ["Owner", "Manager", "Storekeeper", "Salesperson"] },
   { key: "sales", label: "POS Sales", icon: BadgeDollarSign, roles: ["Owner", "Manager", "Salesperson"] },
   { key: "production", label: "Production", icon: Factory, roles: ["Owner", "Manager"] },
@@ -82,8 +84,9 @@ export default function App() {
           </Button>
         </header>
         <section className="p-4 lg:p-8">
-          {active === "dashboard" && <Dashboard token={session.token} />}
+          {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
           {active === "employees" && <Employees token={session.token} />}
+          {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
           {active === "inventory" && <Inventory token={session.token} />}
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
@@ -133,8 +136,10 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
   );
 }
 
-function Dashboard({ token }: { token: string }) {
+function Dashboard({ token, role }: { token: string; role: RoleName }) {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.dashboard(token) });
+  const canViewAttendance = ["Owner", "Manager", "HR/Admin"].includes(role);
+  const attendanceStats = useQuery({ queryKey: ["attendance-stats-dashboard"], queryFn: () => api.attendanceStats(token), enabled: canViewAttendance });
   if (isLoading || !data) return <Loading />;
   return (
     <div className="grid gap-6">
@@ -144,6 +149,13 @@ function Dashboard({ token }: { token: string }) {
         <Metric title="Sales invoices" value={data.totalSales} icon={<BadgeDollarSign />} />
         <Metric title="Revenue" value={currency(data.revenue)} icon={<FileBarChart />} />
       </div>
+      {attendanceStats.data && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Metric title="Present today" value={attendanceStats.data.present} icon={<CalendarCheck />} />
+          <Metric title="Absent today" value={attendanceStats.data.absent} icon={<Users />} />
+          <Metric title="Late today" value={attendanceStats.data.late} icon={<FileBarChart />} />
+        </div>
+      )}
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <h3 className="text-lg font-bold">Low stock alerts</h3>
@@ -220,7 +232,7 @@ function Employees({ token }: { token: string }) {
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
-                <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.workDate}</td><td>{record.checkInAt ? new Date(record.checkInAt).toLocaleTimeString() : "-"}</td><td>{record.checkOutAt ? new Date(record.checkOutAt).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
+                <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
               </table>
             </div>
           </Card>
@@ -283,6 +295,131 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
 
 function Avatar({ employee, large = false }: { employee: Employee; large?: boolean }) {
   return employee.profileImageUrl ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", large ? "h-20 w-20" : "h-14 w-14")} /> : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700", large ? "h-20 w-20 text-2xl" : "h-14 w-14")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+}
+
+function Attendance({ token, role }: { token: string; role: RoleName }) {
+  const queryClient = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+  const [date, setDate] = useState(today);
+  const [search, setSearch] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [month, setMonth] = useState(currentMonth);
+  const canManualEdit = role === "Owner" || role === "HR/Admin";
+  const attendance = useQuery({ queryKey: ["attendance-today", date], queryFn: () => api.attendanceToday(token, date) });
+  const stats = useQuery({ queryKey: ["attendance-stats", date], queryFn: () => api.attendanceStats(token, date) });
+  const selectedId = selectedEmployeeId || attendance.data?.[0]?.employeeId || "";
+  const monthReport = useQuery({ queryKey: ["attendance-month", selectedId, month], queryFn: () => api.attendanceMonth(token, selectedId, month), enabled: Boolean(selectedId) });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["attendance-today"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-month"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-stats-dashboard"] });
+  };
+  const checkIn = useMutation({ mutationFn: (employeeId: string) => api.checkIn(token, employeeId, date), onSuccess: invalidate });
+  const checkOut = useMutation({ mutationFn: (employeeId: string) => api.checkOut(token, employeeId, date), onSuccess: invalidate });
+  const manual = useMutation({ mutationFn: (body: Record<string, unknown>) => api.manualAttendance(token, body), onSuccess: invalidate });
+  const rows = (attendance.data || []).filter((record) => record.employeeName.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="grid gap-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric title="Present" value={stats.data?.present ?? 0} icon={<CalendarCheck />} />
+        <Metric title="Absent" value={stats.data?.absent ?? 0} icon={<Users />} />
+        <Metric title="Late" value={stats.data?.late ?? 0} icon={<FileBarChart />} />
+      </div>
+      <Card>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-black">Daily Attendance</h2>
+            <p className="text-sm text-slate-500">Start time: {import.meta.env.VITE_ATTENDANCE_START_TIME || "09:00"} · Manager can check in/out, HR/Admin can manually edit.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input placeholder="Search employee" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </div>
+        </div>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead className="text-slate-500">
+              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Actions</th>{canManualEdit && <th>HR edit</th>}</tr>
+            </thead>
+            <tbody>
+              {rows.map((record) => (
+                <tr key={`${record.employeeId}-${record.date}`} className="border-t">
+                  <td className="py-3">
+                    <button className="font-semibold text-emerald-700 hover:underline" onClick={() => setSelectedEmployeeId(record.employeeId)}>{record.employeeName}</button>
+                    <p className="text-xs text-slate-500">{record.employeeCode}</p>
+                  </td>
+                  <td>{record.department}</td>
+                  <td><AttendanceBadge status={record.status} /></td>
+                  <td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td>
+                  <td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td>
+                  <td>{record.totalHours ?? "-"}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" disabled={Boolean(record.checkInTime) || checkIn.isPending} onClick={() => checkIn.mutate(record.employeeId)}>Check-in</Button>
+                      <Button variant="secondary" disabled={!record.checkInTime || Boolean(record.checkOutTime) || checkOut.isPending} onClick={() => checkOut.mutate(record.employeeId)}>Check-out</Button>
+                    </div>
+                  </td>
+                  {canManualEdit && (
+                    <td>
+                      <Select value={record.status} onChange={(event) => manual.mutate({ employeeId: record.employeeId, date, status: event.target.value })}>
+                        <option>Present</option>
+                        <option>Absent</option>
+                        <option>Late</option>
+                      </Select>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <Card>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-xl font-black">Employee Attendance Profile</h3>
+            <p className="text-sm text-slate-500">Monthly attendance percentage and working-day summary.</p>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Select value={selectedId} onChange={(event) => setSelectedEmployeeId(event.target.value)}>
+              {attendance.data?.map((record) => <option key={record.employeeId} value={record.employeeId}>{record.employeeName}</option>)}
+            </Select>
+            <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+          </div>
+        </div>
+        {monthReport.data && (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[260px_1fr]">
+            <div className="rounded-2xl bg-emerald-50 p-4">
+              <p className="text-sm text-emerald-700">{monthReport.data.employee.employeeCode}</p>
+              <h4 className="text-xl font-black">{monthReport.data.employee.fullName}</h4>
+              <p className="mt-2 text-sm text-slate-600">{monthReport.data.employee.position} · {monthReport.data.employee.department}</p>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-slate-500">Attendance</p><p className="text-2xl font-black">{monthReport.data.attendancePercentage}%</p></div>
+                <div><p className="text-slate-500">Working days</p><p className="text-2xl font-black">{monthReport.data.totalWorkingDays}</p></div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th></tr></thead>
+                <tbody>
+                  {monthReport.data.records.length ? monthReport.data.records.map((record) => (
+                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td>{record.totalHours ?? "-"}</td></tr>
+                  )) : <tr><td className="py-4 text-slate-500" colSpan={5}>No attendance records for this month.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function AttendanceBadge({ status }: { status: AttendanceRecord["status"] }) {
+  return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800")}>{status}</Badge>;
 }
 
 function Inventory({ token }: { token: string }) {

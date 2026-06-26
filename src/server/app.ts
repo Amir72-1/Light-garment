@@ -96,6 +96,20 @@ const productionSchema = z.object({
   notes: z.string().optional()
 });
 
+const attendanceActionSchema = z.object({
+  employeeId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  time: z.string().datetime().optional()
+});
+
+const manualAttendanceSchema = z.object({
+  employeeId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.enum(["Present", "Absent", "Late"]),
+  checkInTime: z.string().datetime().optional().or(z.literal("")),
+  checkOutTime: z.string().datetime().optional().or(z.literal(""))
+});
+
 function sign(user: AuthUser) {
   return jwt.sign(user, jwtSecret, { expiresIn: "8h" });
 }
@@ -216,8 +230,8 @@ export async function createApp() {
     response.status(deleted ? 204 : 404).end();
   }));
 
-  app.get("/api/attendance", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
-    response.json(await repository.listAttendance());
+  app.get("/api/attendance", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    response.json(await repository.listAttendance(request.query.date ? String(request.query.date) : undefined));
   }));
 
   app.post("/api/attendance/:employeeId/check-in", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
@@ -228,6 +242,41 @@ export async function createApp() {
   app.post("/api/attendance/:employeeId/check-out", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
     const record = await repository.checkOut(String(request.params.employeeId));
     response.status(record ? 200 : 404).json(record ?? { message: "Open attendance record not found" });
+  }));
+
+  app.post("/api/attendance/check-in", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = attendanceActionSchema.parse(request.body);
+    const record = await repository.checkIn(parsed.employeeId, parsed.date, parsed.time);
+    response.status(record ? 201 : 404).json(record ?? { message: "Employee not found" });
+  }));
+
+  app.post("/api/attendance/check-out", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = attendanceActionSchema.parse(request.body);
+    const record = await repository.checkOut(parsed.employeeId, parsed.date, parsed.time);
+    response.status(record ? 200 : 404).json(record ?? { message: "Open attendance record not found" });
+  }));
+
+  app.post("/api/attendance/manual", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = manualAttendanceSchema.parse(request.body);
+    const record = await repository.manualAttendance({
+      ...parsed,
+      checkInTime: parsed.checkInTime || undefined,
+      checkOutTime: parsed.checkOutTime || undefined
+    });
+    response.status(record ? 200 : 404).json(record ?? { message: "Employee not found" });
+  }));
+
+  app.get("/api/attendance/today", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    response.json(await repository.attendanceToday(request.query.date ? String(request.query.date) : undefined));
+  }));
+
+  app.get("/api/attendance/month/:employeeId", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const report = await repository.employeeAttendanceMonth(String(request.params.employeeId), request.query.month ? String(request.query.month) : undefined);
+    response.status(report ? 200 : 404).json(report ?? { message: "Employee not found" });
+  }));
+
+  app.get("/api/attendance/stats", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    response.json(await repository.attendanceStats(request.query.date ? String(request.query.date) : undefined));
   }));
 
   app.get("/api/products", auth, allow("Owner", "Manager", "Storekeeper", "Salesperson"), asyncRoute(async (_request, response) => {
@@ -290,7 +339,7 @@ export async function createApp() {
       return;
     }
     if (error instanceof Error) {
-      response.status(error.message.includes("Insufficient") ? 409 : 500).json({ message: error.message });
+      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") ? 409 : 500).json({ message: error.message });
       return;
     }
     response.status(500).json({ message: "Unexpected server error" });
