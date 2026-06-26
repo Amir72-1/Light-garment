@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: light_garment_erp
+      POSTGRES_USER: light_garment
+      POSTGRES_PASSWORD: light_garment_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U light_garment -d light_garment_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      CORS_ORIGIN: http://localhost:4000
+      JWT_SECRET: replace-this-secret-before-production
+      DATABASE_URL: postgresql://light_garment:light_garment_password@postgres:5432/light_garment_erp?schema=public
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads:/app/uploads
+    command: sh -c "npx prisma db push && npm run db:seed && node dist/server/server/server.js"
+
+volumes:
+  postgres-data:
+  uploads:

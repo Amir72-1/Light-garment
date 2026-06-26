@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleName {
+  OWNER
+  MANAGER
+  STOREKEEPER
+  SALESPERSON
+  HR_ADMIN
+}
+
+enum Department {
+  PRODUCTION
+  SALES
+  ADMIN
+  STORE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  PARTIAL
+  ABSENT
+}
+
+enum InventoryMovementType {
+  STOCK_IN
+  STOCK_OUT
+  TRANSFER
+  SALE
+  ADJUSTMENT
+}
+
+enum ProductionWorkflowStage {
+  FABRIC
+  CUTTING
+  SEWING
+  PRINTING
+  IRONING
+  PACKAGING
+  FINISHED_GOODS
+}
+
+enum ProductionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  MOBILE_MONEY
+}
+
+enum RawMaterialCategory {
+  FABRIC
+  THREAD
+  BUTTONS
+  LABELS
+  PACKAGING
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  name      RoleName @unique
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id                 String               @id @default(cuid())
+  name               String
+  email              String               @unique
+  passwordHash       String
+  roleId             String
+  role               Role                 @relation(fields: [roleId], references: [id])
+  employeeId         String?              @unique
+  employee           Employee?            @relation(fields: [employeeId], references: [id])
+  passwordResetTokens PasswordResetToken[]
+  sales              Sale[]
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model Employee {
+  id             String          @id @default(cuid())
+  employeeCode   String          @unique
+  fullName       String
+  profileImageUrl String?
+  phoneNumber    String
+  email          String?         @unique
+  address        String
+  gender         Gender
+  dateOfBirth    DateTime
+  position       String
+  department     Department
+  salary         Decimal         @db.Decimal(12, 2)
+  employmentType EmploymentType
+  hireDate       DateTime
+  status         EmployeeStatus  @default(ACTIVE)
+  user           User?
+  attendance     Attendance[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Attendance {
+  id          String           @id @default(cuid())
+  employeeId  String
+  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate    DateTime
+  checkInAt   DateTime?
+  checkOutAt  DateTime?
+  status      AttendanceStatus @default(PRESENT)
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+}
+
+model Supplier {
+  id           String        @id @default(cuid())
+  name         String
+  contactName  String?
+  phone        String?
+  email        String?
+  address      String?
+  products     Product[]
+  rawMaterials RawMaterial[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Product {
+  id               String              @id @default(cuid())
+  sku              String              @unique
+  productName      String
+  model            String
+  color            String
+  size             String
+  quantity         Int                 @default(0)
+  costPrice        Decimal             @db.Decimal(12, 2)
+  sellingPrice     Decimal             @db.Decimal(12, 2)
+  images           String[]
+  barcode          String?             @unique
+  qrCode           String?
+  supplierId       String?
+  supplier         Supplier?           @relation(fields: [supplierId], references: [id])
+  inventoryMoves   Inventory[]
+  saleItems        SaleItem[]
+  productionStages ProductionStage[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model Inventory {
+  id              String                @id @default(cuid())
+  productId       String
+  product         Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type            InventoryMovementType
+  quantity        Int
+  fromLocation    String?
+  toLocation      String?
+  reference       String?
+  note            String?
+  createdAt       DateTime              @default(now())
+}
+
+model RawMaterial {
+  id             String              @id @default(cuid())
+  name           String
+  category       RawMaterialCategory
+  unit           String
+  quantity       Decimal             @db.Decimal(12, 2)
+  reorderLevel   Decimal             @db.Decimal(12, 2)
+  unitCost        Decimal             @db.Decimal(12, 2)
+  supplierId     String?
+  supplier       Supplier?           @relation(fields: [supplierId], references: [id])
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  cashierId     String
+  cashier       User          @relation(fields: [cashierId], references: [id])
+  customerName  String?
+  subtotal      Decimal       @db.Decimal(12, 2)
+  tax           Decimal       @db.Decimal(12, 2) @default(0)
+  discount      Decimal       @db.Decimal(12, 2) @default(0)
+  total         Decimal       @db.Decimal(12, 2)
+  amountPaid    Decimal       @db.Decimal(12, 2)
+  paymentStatus PaymentStatus
+  paymentMethod PaymentMethod
+  items         SaleItem[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model SaleItem {
+  id        String  @id @default(cuid())
+  saleId    String
+  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 2)
+  total     Decimal @db.Decimal(12, 2)
+}
+
+model ProductionStage {
+  id          String                  @id @default(cuid())
+  productId   String
+  product     Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stage       ProductionWorkflowStage
+  status      ProductionStatus        @default(PENDING)
+  assignedTo  String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+}
