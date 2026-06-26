@@ -9,7 +9,7 @@
     "dev:api": "tsx watch src/server/server.ts",
     "dev:web": "vite --host 0.0.0.0",
     "build": "npm run db:generate && tsc -p tsconfig.server.json && vite build",
-    "start": "node dist/server/server.js",
+    "start": "node dist/server/server/server.js",
     "test": "vitest run",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
