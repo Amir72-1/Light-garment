@@ -308,7 +308,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
   const canManualEdit = role === "Owner" || role === "HR/Admin";
   const attendance = useQuery({ queryKey: ["attendance-today", date], queryFn: () => api.attendanceToday(token, date) });
   const stats = useQuery({ queryKey: ["attendance-stats", date], queryFn: () => api.attendanceStats(token, date) });
-  const selectedId = selectedEmployeeId || attendance.data?.[0]?.employeeId || "";
+  const selectedId = selectedEmployeeId;
   const monthReport = useQuery({ queryKey: ["attendance-month", selectedId, month], queryFn: () => api.attendanceMonth(token, selectedId, month), enabled: Boolean(selectedId) });
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["attendance-today"] });
@@ -346,7 +346,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
             </thead>
             <tbody>
               {rows.map((record) => (
-                <tr key={`${record.employeeId}-${record.date}`} className="border-t">
+                <tr key={`${record.employeeId}-${record.date}`} className={cn("border-t", selectedEmployeeId === record.employeeId && "bg-emerald-50/70")}>
                   <td className="py-3">
                     <button className="font-semibold text-emerald-700 hover:underline" onClick={() => setSelectedEmployeeId(record.employeeId)}>{record.employeeName}</button>
                     <p className="text-xs text-slate-500">{record.employeeCode}</p>
@@ -385,12 +385,14 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             <Select value={selectedId} onChange={(event) => setSelectedEmployeeId(event.target.value)}>
+              <option value="">Select employee</option>
               {attendance.data?.map((record) => <option key={record.employeeId} value={record.employeeId}>{record.employeeName}</option>)}
             </Select>
             <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
           </div>
         </div>
-        {monthReport.data && (
+        {!selectedId && <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Select an employee from the daily table or dropdown to view the monthly attendance profile.</p>}
+        {selectedId && monthReport.data && (
           <div className="mt-5 grid gap-5 lg:grid-cols-[260px_1fr]">
             <div className="rounded-2xl bg-emerald-50 p-4">
               <p className="text-sm text-emerald-700">{monthReport.data.employee.employeeCode}</p>

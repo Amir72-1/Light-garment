@@ -346,9 +346,9 @@ export class PrismaRepository {
       where: { employeeId_date: { employeeId: input.employeeId, date } },
       update: {
         status: attendanceToDb[input.status] as any,
-        checkInTime: input.checkInTime,
-        checkOutTime: input.checkOutTime,
-        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+        checkInTime: input.status === "Absent" ? null : input.checkInTime,
+        checkOutTime: input.status === "Absent" ? null : input.checkOutTime,
+        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime)
       },
       create: {
         employeeId: input.employeeId,

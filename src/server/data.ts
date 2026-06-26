@@ -357,8 +357,8 @@ export class DemoRepository {
       this.attendance.unshift(record);
     } else {
       record.status = input.status;
-      record.checkInTime = input.checkInTime || record.checkInTime;
-      record.checkOutTime = input.checkOutTime || record.checkOutTime;
+      record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
+      record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
       record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
     }
     this.log(`${employee.fullName} attendance marked ${record.status}`);
