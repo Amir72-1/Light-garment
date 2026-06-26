@@ -50,12 +50,12 @@ const employeeSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().min(3),
   gender: z.enum(["Male", "Female", "Other"]),
-  dateOfBirth: z.string().min(4),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   position: z.string().min(2),
   department: z.enum(["Production", "Sales", "Admin", "Store"]),
   salary: z.coerce.number().nonnegative(),
   employmentType: z.enum(["Full-time", "Part-time", "Contract"]),
-  hireDate: z.string().min(4),
+  hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   status: z.enum(["Active", "Inactive"]).default("Active")
 });
 
