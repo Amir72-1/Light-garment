@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import { z } from "zod";
 import { DemoRepository } from "./data.js";
+import { PrismaRepository } from "./prismaRepository.js";
 import type { RoleName } from "../shared/types.js";
 
 dotenv.config();
@@ -131,7 +132,9 @@ function asyncRoute(handler: (request: AuthedRequest, response: Response) => Pro
 }
 
 export async function createApp() {
-  const repository = await DemoRepository.create();
+  const repository = process.env.DATABASE_URL && process.env.DEMO_MODE !== "true"
+    ? PrismaRepository.create()
+    : await DemoRepository.create();
   const app = express();
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));

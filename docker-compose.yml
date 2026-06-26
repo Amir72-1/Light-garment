@@ -30,7 +30,7 @@ services:
       - "4000:4000"
     volumes:
       - uploads:/app/uploads
-    command: sh -c "npx prisma migrate deploy && npm run db:seed && node dist/server/server/server.js"
+    command: sh -c "npx prisma db push && npm run db:seed && node dist/server/server/server.js"
 
 volumes:
   postgres-data:

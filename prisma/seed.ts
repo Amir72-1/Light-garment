@@ -1,7 +1,11 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL ?? "postgresql://light_garment:light_garment_password@localhost:5432/light_garment_erp?schema=public"
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const roles = ["OWNER", "MANAGER", "STOREKEEPER", "SALESPERSON", "HR_ADMIN"] as const;
