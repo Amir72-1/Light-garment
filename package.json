@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Garment ERP web application for Light Garment Manufacturing PLC.",
   "type": "module",
-  "main": "dist/server/server.js",
+  "main": "dist/server/server/server.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "tsx watch src/server/server.ts",
