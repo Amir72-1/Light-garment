@@ -20,6 +20,7 @@ export interface Employee {
   employeeCode: string;
   fullName: string;
   profileImageUrl?: string;
+  faydaNumber?: string;
   phoneNumber: string;
   email?: string;
   address: string;

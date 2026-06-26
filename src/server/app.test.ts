@@ -30,6 +30,7 @@ describe("Light Garment ERP API", () => {
       .post("/api/employees")
       .set("Authorization", `Bearer ${token}`)
       .field("fullName", "Test Tailor")
+      .field("faydaNumber", "FIN-TEST-0001")
       .field("phoneNumber", "+251900000000")
       .field("address", "Factory floor")
       .field("gender", "Other")
@@ -43,6 +44,7 @@ describe("Light Garment ERP API", () => {
       .expect(201);
 
     expect(create.body.employeeCode).toMatch(/^LGM-EMP-/);
+    expect(create.body.faydaNumber).toBe("FIN-TEST-0001");
 
     const checkIn = await request(app)
       .post(`/api/attendance/${create.body.id}/check-in`)
@@ -110,6 +112,21 @@ describe("Light Garment ERP API", () => {
   it("blocks storekeeper and sales roles from attendance module APIs", async () => {
     const { app, token } = await login("sales@lightgarment.example");
     await request(app).get("/api/attendance/today").set("Authorization", `Bearer ${token}`).expect(403);
+  });
+
+  it("registers raw materials from the inventory module API", async () => {
+    const { app, token } = await login();
+    const create = await request(app)
+      .post("/api/raw-materials")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Test Denim Fabric", category: "Fabric", unit: "meter", quantity: 75, reorderLevel: 20, unitCost: 145 })
+      .expect(201);
+
+    expect(create.body.name).toBe("Test Denim Fabric");
+    expect(create.body.quantity).toBe(75);
+
+    const rows = await request(app).get("/api/raw-materials").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(rows.body.some((item: { name: string }) => item.name === "Test Denim Fabric")).toBe(true);
   });
 
   it("creates POS invoices and deducts shirt stock", async () => {

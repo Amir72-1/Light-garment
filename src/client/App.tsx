@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, Employee, Product, RoleName, UserSession } from "../shared/types";
+import type { AttendanceRecord, Employee, Product, RawMaterial, RoleName, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 
@@ -263,7 +263,7 @@ function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onCl
         </div>
         <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
         <dl className="mt-4 grid gap-2 text-sm">
-          {Object.entries({ Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
+          {Object.entries({ "Fayda number": employee.faydaNumber || "Not provided", Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
         </dl>
       </Card>
     </div>
@@ -276,6 +276,7 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
       <h3 className="text-lg font-bold">Add employee</h3>
       <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
         <Field label="Full name"><Input name="fullName" required /></Field>
+        <Field label="Fayda number"><Input name="faydaNumber" placeholder="FIN / Fayda ID number" /></Field>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Phone"><Input name="phoneNumber" required /></Field>
           <Field label="Email (optional)"><Input name="email" type="email" placeholder="Leave blank if none" /></Field>
@@ -431,6 +432,7 @@ function Inventory({ token }: { token: string }) {
   const rawMaterials = useQuery({ queryKey: ["raw"], queryFn: () => api.rawMaterials(token) });
   const productCreate = useMutation({ mutationFn: (body: Partial<Product>) => api.createProduct(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
   const stockMove = useMutation({ mutationFn: (body: Record<string, unknown>) => api.moveStock(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
+  const rawCreate = useMutation({ mutationFn: (body: Omit<RawMaterial, "id">) => api.createRawMaterial(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
   const firstProduct = products.data?.[0];
 
   return (
@@ -468,7 +470,12 @@ function Inventory({ token }: { token: string }) {
         </Card>
         <Card>
           <h3 className="text-lg font-bold">Raw materials</h3>
-          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category})</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
+          <form className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); rawCreate.mutate({ name: String(form.name), category: form.category as RawMaterial["category"], unit: String(form.unit), quantity: Number(form.quantity), reorderLevel: Number(form.reorderLevel), unitCost: Number(form.unitCost) }); event.currentTarget.reset(); }}>
+            <div className="grid gap-3 md:grid-cols-2"><Field label="Material name"><Input name="name" placeholder="Denim fabric" required /></Field><Field label="Category"><Select name="category" required><option>Fabric</option><option>Thread</option><option>Buttons</option><option>Labels</option><option>Packaging</option></Select></Field></div>
+            <div className="grid gap-3 md:grid-cols-3"><Field label="Unit"><Input name="unit" placeholder="meter" required /></Field><Field label="Quantity"><Input name="quantity" type="number" step="0.01" required /></Field><Field label="Reorder level"><Input name="reorderLevel" type="number" step="0.01" required /></Field></div>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]"><Field label="Unit cost"><Input name="unitCost" type="number" step="0.01" required /></Field><Button disabled={rawCreate.isPending} className="self-end">{rawCreate.isPending ? "Saving..." : "Add raw material"}</Button></div>
+          </form>
+          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category}) · {currency(material.unitCost)} / {material.unit}</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
         </Card>
       </div>
     </div>

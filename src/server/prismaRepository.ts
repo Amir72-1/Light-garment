@@ -52,6 +52,7 @@ const stageFromDb: Record<string, ProductionStage["stage"]> = { FABRIC: "Fabric"
 const stageStatusFromDb: Record<string, ProductionStage["status"]> = { PENDING: "Pending", IN_PROGRESS: "In progress", COMPLETED: "Completed", BLOCKED: "Blocked" };
 const stageStatusToDb: Record<ProductionStage["status"], string> = { Pending: "PENDING", "In progress": "IN_PROGRESS", Completed: "COMPLETED", Blocked: "BLOCKED" };
 const rawCategoryFromDb: Record<string, RawMaterial["category"]> = { FABRIC: "Fabric", THREAD: "Thread", BUTTONS: "Buttons", LABELS: "Labels", PACKAGING: "Packaging" };
+const rawCategoryToDb: Record<RawMaterial["category"], string> = { Fabric: "FABRIC", Thread: "THREAD", Buttons: "BUTTONS", Labels: "LABELS", Packaging: "PACKAGING" };
 const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late" };
 const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE" };
 const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
@@ -66,6 +67,7 @@ function employeeFromDb(row: any): Employee {
     employeeCode: row.employeeCode,
     fullName: row.fullName,
     profileImageUrl: row.profileImageUrl ?? "",
+    faydaNumber: row.faydaNumber ?? undefined,
     phoneNumber: row.phoneNumber,
     email: row.email ?? undefined,
     address: row.address,
@@ -205,6 +207,7 @@ export class PrismaRepository {
       where.OR = [
         { fullName: { contains: query.search, mode: "insensitive" } },
         { employeeCode: { contains: query.search, mode: "insensitive" } },
+        { faydaNumber: { contains: query.search, mode: "insensitive" } },
         { phoneNumber: { contains: query.search, mode: "insensitive" } },
         { email: { contains: query.search, mode: "insensitive" } }
       ];
@@ -231,6 +234,7 @@ export class PrismaRepository {
       data: {
         employeeCode: input.employeeCode || `LGM-EMP-${String(count + 1).padStart(4, "0")}`,
         fullName: input.fullName,
+        faydaNumber: input.faydaNumber || null,
         profileImageUrl: input.profileImageUrl || null,
         phoneNumber: input.phoneNumber,
         email: input.email || null,
@@ -253,6 +257,7 @@ export class PrismaRepository {
       where: { id: employeeId },
       data: {
         fullName: input.fullName,
+        faydaNumber: input.faydaNumber,
         profileImageUrl: input.profileImageUrl,
         phoneNumber: input.phoneNumber,
         email: input.email,
@@ -394,6 +399,20 @@ export class PrismaRepository {
   async listRawMaterials() {
     const rows = await this.prisma.rawMaterial.findMany({ orderBy: { name: "asc" } });
     return rows.map((row): RawMaterial => ({ id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) }));
+  }
+
+  async createRawMaterial(input: Omit<RawMaterial, "id">) {
+    const row = await this.prisma.rawMaterial.create({
+      data: {
+        name: input.name,
+        category: rawCategoryToDb[input.category] as any,
+        unit: input.unit,
+        quantity: input.quantity,
+        reorderLevel: input.reorderLevel,
+        unitCost: input.unitCost
+      }
+    });
+    return { id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) };
   }
 
   async listProduction() {

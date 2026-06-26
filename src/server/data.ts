@@ -104,6 +104,7 @@ export class DemoRepository {
         id: "emp_1",
         employeeCode: "LGM-EMP-0001",
         fullName: "Miriam Bekele",
+        faydaNumber: "FIN-0001-0001",
         phoneNumber: "+251911000101",
         email: "miriam@lightgarment.example",
         address: "Bole, Addis Ababa",
@@ -121,6 +122,7 @@ export class DemoRepository {
         id: "emp_2",
         employeeCode: "LGM-EMP-0002",
         fullName: "Yonas Alemu",
+        faydaNumber: "FIN-0001-0002",
         phoneNumber: "+251911000303",
         address: "Akaki Kality, Addis Ababa",
         gender: "Male",
@@ -137,6 +139,7 @@ export class DemoRepository {
         id: "emp_3",
         employeeCode: "LGM-EMP-0003",
         fullName: "Sara Hailu",
+        faydaNumber: "FIN-0001-0003",
         phoneNumber: "+251911000404",
         email: "sara@lightgarment.example",
         address: "CMC, Addis Ababa",
@@ -248,7 +251,7 @@ export class DemoRepository {
     let rows = [...this.employees];
     if (query.search) {
       const search = query.search.toLowerCase();
-      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
+      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
     }
     if (query.department) rows = rows.filter((employee) => employee.department === query.department);
     if (query.position) rows = rows.filter((employee) => employee.position.toLowerCase().includes(query.position!.toLowerCase()));
@@ -419,6 +422,13 @@ export class DemoRepository {
 
   async listRawMaterials() {
     return this.rawMaterials;
+  }
+
+  async createRawMaterial(input: Omit<RawMaterial, "id">) {
+    const material: RawMaterial = { ...input, id: id("raw") };
+    this.rawMaterials.unshift(material);
+    this.log(`Raw material ${material.name} registered`);
+    return material;
   }
 
   async listProduction() {

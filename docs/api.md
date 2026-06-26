@@ -17,7 +17,7 @@ All routes except health, login, and password reset require `Authorization: Bear
 ## Employees and Attendance
 
 - `GET /employees?search=&department=&position=&page=&pageSize=&sortBy=&sortOrder=` - Paginated employee list.
-- `POST /employees` - Multipart employee registration with optional `profilePicture`.
+- `POST /employees` - Multipart employee registration with optional `profilePicture`, optional `email`, and optional `faydaNumber`.
 - `GET /employees/:id` - Employee profile.
 - `PUT /employees/:id` - Multipart employee update with optional `profilePicture`.
 - `DELETE /employees/:id` - Delete employee.
@@ -40,6 +40,7 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 - `GET /inventory` - Stock movement history.
 - `POST /inventory/movements` - Create `Stock in`, `Stock out`, `Transfer`, or `Adjustment` movement.
 - `GET /raw-materials` - Fabric, thread, buttons, labels, and packaging stock.
+- `POST /raw-materials` - Register a raw material with `{ name, category, unit, quantity, reorderLevel, unitCost }`.
 
 ## Sales POS
 

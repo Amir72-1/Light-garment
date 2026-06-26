@@ -45,6 +45,7 @@ const loginSchema = z.object({
 
 const employeeSchema = z.object({
   fullName: z.string().min(2),
+  faydaNumber: z.string().min(4).optional().or(z.literal("")),
   phoneNumber: z.string().min(7),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().min(3),
@@ -86,6 +87,15 @@ const stockSchema = z.object({
   fromLocation: z.string().optional(),
   toLocation: z.string().optional(),
   reference: z.string().optional()
+});
+
+const rawMaterialSchema = z.object({
+  name: z.string().min(2),
+  category: z.enum(["Fabric", "Thread", "Buttons", "Labels", "Packaging"]),
+  unit: z.string().min(1),
+  quantity: z.coerce.number().nonnegative(),
+  reorderLevel: z.coerce.number().nonnegative(),
+  unitCost: z.coerce.number().nonnegative()
 });
 
 const productionSchema = z.object({
@@ -196,6 +206,7 @@ export async function createApp() {
     const parsed = employeeSchema.parse(request.body);
     const employee = await repository.createEmployee({
       ...parsed,
+      faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
     });
@@ -215,6 +226,7 @@ export async function createApp() {
     const parsed = employeeSchema.partial().parse(request.body);
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
+      faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
     });
@@ -299,6 +311,10 @@ export async function createApp() {
 
   app.get("/api/raw-materials", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
     response.json(await repository.listRawMaterials());
+  }));
+
+  app.post("/api/raw-materials", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    response.status(201).json(await repository.createRawMaterial(rawMaterialSchema.parse(request.body)));
   }));
 
   app.get("/api/sales", auth, allow("Owner", "Manager", "Salesperson"), asyncRoute(async (_request, response) => {

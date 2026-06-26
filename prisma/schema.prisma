@@ -129,6 +129,7 @@ model Employee {
   employeeCode   String          @unique
   fullName       String
   profileImageUrl String?
+  faydaNumber    String?         @unique
   phoneNumber    String
   email          String?         @unique
   address        String

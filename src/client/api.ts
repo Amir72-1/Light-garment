@@ -54,6 +54,7 @@ export const api = {
   inventory: (token: string) => request<InventoryMovement[]>("/api/inventory", {}, token),
   moveStock: (token: string, body: Record<string, unknown>) => request<InventoryMovement>("/api/inventory/movements", { method: "POST", body: JSON.stringify(body) }, token),
   rawMaterials: (token: string) => request<RawMaterial[]>("/api/raw-materials", {}, token),
+  createRawMaterial: (token: string, body: Omit<RawMaterial, "id">) => request<RawMaterial>("/api/raw-materials", { method: "POST", body: JSON.stringify(body) }, token),
   sales: (token: string) => request<Sale[]>("/api/sales", {}, token),
   createSale: (token: string, body: Record<string, unknown>) => request<Sale>("/api/sales", { method: "POST", body: JSON.stringify(body) }, token),
   production: (token: string) => request<ProductionStage[]>("/api/production", {}, token),
