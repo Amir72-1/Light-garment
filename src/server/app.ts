@@ -186,7 +186,7 @@ export async function createApp() {
   }));
 
   app.get("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
-    const employee = await repository.getEmployee(request.params.id);
+    const employee = await repository.getEmployee(String(request.params.id));
     if (!employee) {
       response.status(404).json({ message: "Employee not found" });
       return;
@@ -196,7 +196,7 @@ export async function createApp() {
 
   app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.partial().parse(request.body);
-    const employee = await repository.updateEmployee(request.params.id, {
+    const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
       email: parsed.email || undefined,
       profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
@@ -209,7 +209,7 @@ export async function createApp() {
   }));
 
   app.delete("/api/employees/:id", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
-    const deleted = await repository.deleteEmployee(request.params.id);
+    const deleted = await repository.deleteEmployee(String(request.params.id));
     response.status(deleted ? 204 : 404).end();
   }));
 
@@ -218,12 +218,12 @@ export async function createApp() {
   }));
 
   app.post("/api/attendance/:employeeId/check-in", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
-    const record = await repository.checkIn(request.params.employeeId);
+    const record = await repository.checkIn(String(request.params.employeeId));
     response.status(record ? 201 : 404).json(record ?? { message: "Employee not found" });
   }));
 
   app.post("/api/attendance/:employeeId/check-out", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
-    const record = await repository.checkOut(request.params.employeeId);
+    const record = await repository.checkOut(String(request.params.employeeId));
     response.status(record ? 200 : 404).json(record ?? { message: "Open attendance record not found" });
   }));
 
@@ -262,7 +262,7 @@ export async function createApp() {
   }));
 
   app.patch("/api/production/:id", auth, allow("Owner", "Manager"), asyncRoute(async (request, response) => {
-    const stage = await repository.updateProduction(request.params.id, productionSchema.parse(request.body));
+    const stage = await repository.updateProduction(String(request.params.id), productionSchema.parse(request.body));
     response.status(stage ? 200 : 404).json(stage ?? { message: "Production stage not found" });
   }));
 
