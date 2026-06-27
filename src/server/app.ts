@@ -137,6 +137,36 @@ const attendanceSettingsSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/)
 });
 
+const payrollPeriodSchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100)
+});
+
+const payrollSettingsSchema = z.object({
+  standardHoursPerDay: z.coerce.number().positive(),
+  workingDaysPerMonth: z.coerce.number().int().positive(),
+  gracePeriodMinutes: z.coerce.number().int().nonnegative(),
+  overtimeRatePerHour: z.coerce.number().nonnegative(),
+  latePenaltyEnabled: z.boolean(),
+  latePenaltyAmount: z.coerce.number().nonnegative(),
+  absenceDeductionEnabled: z.boolean(),
+  taxPercentage: z.coerce.number().nonnegative().optional(),
+  defaultAllowance: z.coerce.number().nonnegative(),
+  defaultBonus: z.coerce.number().nonnegative()
+});
+
+const payrollAdjustmentSchema = z.object({
+  bonus: z.coerce.number().nonnegative().optional(),
+  allowance: z.coerce.number().nonnegative().optional(),
+  deductions: z.coerce.number().nonnegative().optional(),
+  notes: z.string().optional()
+});
+
+const payrollPaymentSchema = z.object({
+  paymentMethod: z.enum(["Cash", "Bank transfer", "Mobile money"]).optional(),
+  paymentDate: z.string().datetime().optional()
+});
+
 function sign(user: AuthUser) {
   return jwt.sign(user, jwtSecret, { expiresIn: "8h" });
 }
@@ -381,6 +411,50 @@ export async function createApp() {
 
   app.get("/api/reports", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
     response.json(await repository.reports());
+  }));
+
+  app.get("/api/payroll/settings", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.payrollSettings());
+  }));
+
+  app.patch("/api/payroll/settings", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.json(await repository.updatePayrollSettings(payrollSettingsSchema.parse(request.body)));
+  }));
+
+  app.post("/api/payroll/generate", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.body);
+    response.status(201).json(await repository.generatePayroll(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll/dashboard", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.query);
+    response.json(await repository.payrollDashboard(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll/reports", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.query);
+    response.json(await repository.payrollReports(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const month = request.query.month ? Number(request.query.month) : undefined;
+    const year = request.query.year ? Number(request.query.year) : undefined;
+    response.json(await repository.listPayrolls(month, year));
+  }));
+
+  app.get("/api/payroll/:id/payslip", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payslip = await repository.payrollPayslip(String(request.params.id));
+    response.status(payslip ? 200 : 404).json(payslip ?? { message: "Payroll not found" });
+  }));
+
+  app.patch("/api/payroll/:id", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payroll = await repository.updatePayroll(String(request.params.id), payrollAdjustmentSchema.parse(request.body));
+    response.status(payroll ? 200 : 404).json(payroll ?? { message: "Payroll not found" });
+  }));
+
+  app.patch("/api/payroll/:id/pay", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payroll = await repository.markPayrollPaid(String(request.params.id), payrollPaymentSchema.parse(request.body));
+    response.status(payroll ? 200 : 404).json(payroll ?? { message: "Payroll not found" });
   }));
 
   app.get("/api/settings", auth, allow(...roles), asyncRoute(async (_request, response) => {

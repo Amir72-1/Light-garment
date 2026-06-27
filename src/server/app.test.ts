@@ -204,6 +204,56 @@ describe("Light Garment ERP API", () => {
     await request(app).get("/api/attendance/today").set("Authorization", `Bearer ${token}`).expect(403);
   });
 
+  it("generates payroll from attendance and marks salaries paid", async () => {
+    const { app, token } = await login();
+    const employees = await request(app).get("/api/employees?pageSize=10").set("Authorization", `Bearer ${token}`).expect(200);
+    const employee = employees.body.data.find((item: { fullName: string }) => item.fullName === "Yonas Alemu");
+
+    await request(app)
+      .patch("/api/payroll/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ standardHoursPerDay: 8, workingDaysPerMonth: 26, gracePeriodMinutes: 10, overtimeRatePerHour: 100, latePenaltyEnabled: true, latePenaltyAmount: 25, absenceDeductionEnabled: true, taxPercentage: 0, defaultAllowance: 100, defaultBonus: 50 })
+      .expect(200);
+
+    await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date: "2026-06-10", checkInTime: "2026-06-10T07:30:00.000Z", checkOutTime: "2026-06-10T18:00:00.000Z" })
+      .expect(200);
+
+    const generated = await request(app)
+      .post("/api/payroll/generate")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ month: 6, year: 2026 })
+      .expect(201);
+
+    const payroll = generated.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(payroll.overtimeHours).toBeGreaterThan(0);
+    expect(payroll.overtimePay).toBeGreaterThan(0);
+    expect(payroll.paymentStatus).toBe("Pending");
+
+    const paid = await request(app)
+      .patch(`/api/payroll/${payroll.id}/pay`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ paymentMethod: "Bank transfer" })
+      .expect(200);
+
+    expect(paid.body.paymentStatus).toBe("Paid");
+    expect(paid.body.paymentMethod).toBe("Bank transfer");
+
+    const dashboard = await request(app)
+      .get("/api/payroll/dashboard?month=6&year=2026")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(dashboard.body.totalPayroll).toBeGreaterThan(0);
+  });
+
+  it("blocks salesperson from payroll APIs", async () => {
+    const { app, token } = await login("sales@lightgarment.example");
+    await request(app).get("/api/payroll/dashboard?month=6&year=2026").set("Authorization", `Bearer ${token}`).expect(403);
+  });
+
   it("registers raw materials from the inventory module API", async () => {
     const { app, token } = await login();
     const create = await request(app)

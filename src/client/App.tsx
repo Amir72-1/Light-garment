@@ -20,15 +20,16 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, AttendanceSettings, Employee, Paginated, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Employee, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
-type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
+type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
 
 const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
   { key: "employees", label: "Employees", icon: Users, roles: ["Owner", "Manager", "HR/Admin"] },
   { key: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "payroll", label: "Payroll", icon: BadgeDollarSign, roles: ["Owner", "Manager", "HR/Admin"] },
   { key: "inventory", label: "Shirts & Inventory", icon: Shirt, roles: ["Owner", "Manager", "Storekeeper", "Salesperson"] },
   { key: "sales", label: "POS Sales", icon: BadgeDollarSign, roles: ["Owner", "Manager", "Salesperson"] },
   { key: "production", label: "Production", icon: Factory, roles: ["Owner", "Manager"] },
@@ -116,6 +117,7 @@ export default function App() {
           {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
           {active === "employees" && <Employees token={session.token} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
+          {active === "payroll" && <Payroll token={session.token} role={session.user.role} />}
           {active === "inventory" && <Inventory token={session.token} />}
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
@@ -563,6 +565,141 @@ function timeInputValue(value?: string) {
 
 function toAttendanceIso(date: string, time: string) {
   return time ? new Date(`${date}T${time}:00`).toISOString() : undefined;
+}
+
+function Payroll({ token, role }: { token: string; role: RoleName }) {
+  const queryClient = useQueryClient();
+  const today = new Date();
+  const [month, setMonth] = useState(today.getMonth() + 1);
+  const [year, setYear] = useState(today.getFullYear());
+  const [selectedPayslip, setSelectedPayslip] = useState<PayrollRecord | null>(null);
+  const canManage = role === "Owner" || role === "HR/Admin";
+  const settings = useQuery({ queryKey: ["payroll-settings"], queryFn: () => api.payrollSettings(token) });
+  const dashboard = useQuery({ queryKey: ["payroll-dashboard", month, year], queryFn: () => api.payrollDashboard(token, month, year) });
+  const payrolls = useQuery({ queryKey: ["payrolls", month, year], queryFn: () => api.payrolls(token, month, year) });
+  const reports = useQuery({ queryKey: ["payroll-reports", month, year], queryFn: () => api.payrollReports(token, month, year) });
+  const invalidatePayroll = () => {
+    queryClient.invalidateQueries({ queryKey: ["payroll-dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["payrolls"] });
+    queryClient.invalidateQueries({ queryKey: ["payroll-reports"] });
+  };
+  const generate = useMutation({ mutationFn: () => api.generatePayroll(token, { month, year }), onSuccess: invalidatePayroll });
+  const saveSettings = useMutation({ mutationFn: (body: PayrollSettings) => api.updatePayrollSettings(token, body), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["payroll-settings"] }) });
+  const updatePayroll = useMutation({ mutationFn: ({ payroll, body }: { payroll: PayrollRecord; body: Record<string, unknown> }) => api.updatePayroll(token, payroll.id, body), onSuccess: invalidatePayroll });
+  const markPaid = useMutation({ mutationFn: (payroll: PayrollRecord) => api.markPayrollPaid(token, payroll.id, { paymentMethod: "Bank transfer" }), onSuccess: invalidatePayroll });
+
+  const exportCsv = () => {
+    const rows = payrolls.data || [];
+    const header = ["Employee", "Department", "Month", "Basic", "Overtime", "Bonus", "Allowance", "Deductions", "Tax", "Net", "Status"];
+    const csv = [header, ...rows.map((payroll) => [payroll.employee.fullName, payroll.employee.department, `${payroll.payrollMonth}/${payroll.payrollYear}`, payroll.basicSalary, payroll.overtimePay, payroll.bonus, payroll.allowance, payroll.deductions, payroll.tax, payroll.payableSalary, payroll.paymentStatus])].map((row) => row.join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `payroll-${year}-${String(month).padStart(2, "0")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="grid gap-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Metric title="Awaiting payment" value={dashboard.data?.awaitingPayment ?? 0} icon={<Users />} />
+        <Metric title="Total payroll" value={currency(dashboard.data?.totalPayroll ?? 0)} icon={<BadgeDollarSign />} />
+        <Metric title="Total paid" value={currency(dashboard.data?.totalPaid ?? 0)} icon={<FileBarChart />} />
+        <Metric title="Total unpaid" value={currency(dashboard.data?.totalUnpaid ?? 0)} icon={<FileBarChart />} />
+      </div>
+
+      <Card>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-black">Payroll & Salary Automation</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Calculates salary from attendance, overtime, absence, late penalties, tax, bonus, and allowances.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[120px_120px_auto_auto]">
+            <Field label="Month"><Input type="number" min={1} max={12} value={month} onChange={(event) => setMonth(Number(event.target.value))} /></Field>
+            <Field label="Year"><Input type="number" min={2000} value={year} onChange={(event) => setYear(Number(event.target.value))} /></Field>
+            {canManage && <Button className="self-end" disabled={generate.isPending} onClick={() => generate.mutate()}>{generate.isPending ? "Generating..." : "Generate payroll"}</Button>}
+            <Button variant="secondary" className="self-end" onClick={exportCsv}>Export Excel CSV</Button>
+          </div>
+        </div>
+      </Card>
+
+      {role === "Owner" && settings.data && (
+        <Card>
+          <h3 className="text-lg font-bold">Payroll settings</h3>
+          <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); saveSettings.mutate({ standardHoursPerDay: Number(form.standardHoursPerDay), workingDaysPerMonth: Number(form.workingDaysPerMonth), gracePeriodMinutes: Number(form.gracePeriodMinutes), overtimeRatePerHour: Number(form.overtimeRatePerHour), latePenaltyEnabled: form.latePenaltyEnabled === "on", latePenaltyAmount: Number(form.latePenaltyAmount), absenceDeductionEnabled: form.absenceDeductionEnabled === "on", taxPercentage: Number(form.taxPercentage), defaultAllowance: Number(form.defaultAllowance), defaultBonus: Number(form.defaultBonus) }); }}>
+            <Field label="Standard hours/day"><Input name="standardHoursPerDay" type="number" step="0.01" defaultValue={settings.data.standardHoursPerDay} /></Field>
+            <Field label="Working days/month"><Input name="workingDaysPerMonth" type="number" defaultValue={settings.data.workingDaysPerMonth} /></Field>
+            <Field label="Grace minutes"><Input name="gracePeriodMinutes" type="number" defaultValue={settings.data.gracePeriodMinutes} /></Field>
+            <Field label="Overtime rate/hour"><Input name="overtimeRatePerHour" type="number" step="0.01" defaultValue={settings.data.overtimeRatePerHour} /></Field>
+            <Field label="Late penalty amount"><Input name="latePenaltyAmount" type="number" step="0.01" defaultValue={settings.data.latePenaltyAmount} /></Field>
+            <Field label="Tax %"><Input name="taxPercentage" type="number" step="0.01" defaultValue={settings.data.taxPercentage || 0} /></Field>
+            <Field label="Default allowance"><Input name="defaultAllowance" type="number" step="0.01" defaultValue={settings.data.defaultAllowance} /></Field>
+            <Field label="Default bonus"><Input name="defaultBonus" type="number" step="0.01" defaultValue={settings.data.defaultBonus} /></Field>
+            <div className="grid gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+              <label className="flex items-center gap-2"><input name="latePenaltyEnabled" type="checkbox" defaultChecked={settings.data.latePenaltyEnabled} /> Late penalty enabled</label>
+              <label className="flex items-center gap-2"><input name="absenceDeductionEnabled" type="checkbox" defaultChecked={settings.data.absenceDeductionEnabled} /> Absence deduction enabled</label>
+              <Button disabled={saveSettings.isPending}>{saveSettings.isPending ? "Saving..." : "Save settings"}</Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      <Card>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div><h3 className="text-xl font-black">Payroll history</h3><p className="text-sm text-slate-500 dark:text-slate-400">HR/Admin can adjust bonuses and deductions; Owner/HR can mark salaries paid.</p></div>
+          <Button variant="secondary" onClick={() => window.print()}>Print selected payslip / PDF</Button>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-left text-sm">
+            <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Attendance</th><th>Overtime</th><th>Adjustments</th><th>Deductions/Tax</th><th>Net salary</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {payrolls.data?.map((payroll) => (
+                <tr key={payroll.id} className="border-t">
+                  <td className="py-3"><p className="font-semibold">{payroll.employee.fullName}</p><p className="text-xs text-slate-500">{payroll.employee.employeeCode} · {payroll.employee.department}</p></td>
+                  <td>{payroll.presentDays} present · {payroll.absentDays} absent · {payroll.lateDays} late</td>
+                  <td>{payroll.overtimeHours}h · {currency(payroll.overtimePay)}</td>
+                  <td>{currency(payroll.bonus)} bonus · {currency(payroll.allowance)} allowance</td>
+                  <td>{currency(payroll.deductions)} deductions · {currency(payroll.tax)} tax</td>
+                  <td className="font-black">{currency(payroll.payableSalary)}</td>
+                  <td><Badge className={payroll.paymentStatus === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>{payroll.paymentStatus}</Badge></td>
+                  <td><div className="flex flex-wrap gap-2">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && payroll.paymentStatus !== "Paid" && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="text-xl font-black">Payroll reports</h3>
+        <pre className="mt-4 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-emerald-100">{JSON.stringify(reports.data, null, 2)}</pre>
+      </Card>
+
+      {selectedPayslip && <Payslip payroll={selectedPayslip} onClose={() => setSelectedPayslip(null)} />}
+    </div>
+  );
+}
+
+function Payslip({ payroll, onClose }: { payroll: PayrollRecord; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm print:static print:block print:bg-white print:p-0">
+      <Card className="max-h-[90vh] w-full max-w-3xl overflow-y-auto print:max-h-none print:border-0 print:shadow-none">
+        <div className="flex items-start justify-between gap-4 print:hidden"><h3 className="text-xl font-black">Employee payslip</h3><Button variant="ghost" onClick={onClose}><X className="h-4 w-4" /></Button></div>
+        <div className="mt-4 flex items-center gap-4 border-b pb-4">
+          <LightGarmentLogo />
+          <div><h1 className="text-2xl font-black">Light Garment Manufacturing PLC</h1><p className="text-sm text-slate-500">Payroll payslip · {payroll.payrollMonth}/{payroll.payrollYear}</p></div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-[120px_1fr]">
+          <Avatar employee={payroll.employee} large />
+          <div className="grid gap-2 text-sm md:grid-cols-2">
+            {Object.entries({ "Employee ID": payroll.employee.employeeCode, Name: payroll.employee.fullName, Department: payroll.employee.department, Position: payroll.employee.position, "Basic salary": currency(payroll.basicSalary), "Present days": payroll.presentDays, "Absent days": payroll.absentDays, "Late days": payroll.lateDays, "Overtime hours": payroll.overtimeHours, "Overtime pay": currency(payroll.overtimePay), Bonus: currency(payroll.bonus), Allowance: currency(payroll.allowance), Deductions: currency(payroll.deductions), Tax: currency(payroll.tax), "Net salary": currency(payroll.payableSalary), Status: payroll.paymentStatus }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-b py-2"><span className="text-slate-500">{key}</span><strong>{value}</strong></div>)}
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2 print:hidden"><Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button><Button onClick={onClose}>Close</Button></div>
+      </Card>
+    </div>
+  );
 }
 
 function Inventory({ token }: { token: string }) {

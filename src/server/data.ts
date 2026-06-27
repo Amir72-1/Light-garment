@@ -9,6 +9,10 @@ import type {
   EmployeeAttendanceProfile,
   InventoryMovement,
   Paginated,
+  PayrollDashboard,
+  PayrollRecord,
+  PayrollReports,
+  PayrollSettings,
   Product,
   ProductionStage,
   RawMaterial,
@@ -16,6 +20,7 @@ import type {
   Sale,
   SaleItem
 } from "../shared/types.js";
+import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 
 type UserRecord = {
   id: string;
@@ -108,6 +113,9 @@ export class DemoRepository {
   private inventory: InventoryMovement[] = [];
   private rawMaterials: RawMaterial[] = [];
   private sales: Sale[] = [];
+  private payrolls: PayrollRecord[] = [];
+  private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
+  private payrollAudit: Array<{ payrollId: string; action: string; details?: string; at: string }> = [];
   private production: ProductionStage[] = [];
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
@@ -391,6 +399,7 @@ export class DemoRepository {
       record.status = status;
     }
     this.log(`${employee.fullName} checked in`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
     return record;
   }
 
@@ -401,6 +410,7 @@ export class DemoRepository {
     record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
     record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     this.log(`${record.employeeName} checked out`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
     return record;
   }
 
@@ -420,6 +430,7 @@ export class DemoRepository {
       record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     }
     this.log(`${employee.fullName} attendance marked ${record.status}`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, date);
     return record;
   }
 
@@ -437,6 +448,7 @@ export class DemoRepository {
     record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
     record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     this.log(`${employee.fullName} attendance times updated`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, input.date);
     return record;
   }
 
@@ -462,6 +474,153 @@ export class DemoRepository {
       totalHours: totalHours(input.checkInTime, input.checkOutTime),
       overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
     };
+  }
+
+  async payrollSettings() {
+    return this.payrollSettingsConfig;
+  }
+
+  async updatePayrollSettings(settings: PayrollSettings) {
+    this.payrollSettingsConfig = settings;
+    this.log("Payroll settings updated");
+    return this.payrollSettingsConfig;
+  }
+
+  async generatePayroll(month: number, year: number) {
+    const employees = this.employees.filter((employee) => !employee.archivedAt);
+    const records = employees.map((employee) => this.upsertPayrollForEmployee(employee, month, year));
+    this.log(`Payroll generated for ${month}/${year}`);
+    return records;
+  }
+
+  async listPayrolls(month?: number, year?: number) {
+    return this.payrolls
+      .filter((payroll) => (month ? payroll.payrollMonth === month : true) && (year ? payroll.payrollYear === year : true))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async payrollDashboard(month: number, year: number): Promise<PayrollDashboard> {
+    const history = await this.listPayrolls(month, year);
+    return {
+      awaitingPayment: history.filter((payroll) => payroll.paymentStatus !== "Paid").length,
+      totalPayroll: history.reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalPaid: history.filter((payroll) => payroll.paymentStatus === "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalUnpaid: history.filter((payroll) => payroll.paymentStatus !== "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      history
+    };
+  }
+
+  async payrollReports(month: number, year: number): Promise<PayrollReports> {
+    const monthlyPayroll = await this.listPayrolls(month, year);
+    const departments = Array.from(new Set(monthlyPayroll.map((payroll) => payroll.employee.department)));
+    return {
+      monthlyPayroll,
+      payrollByDepartment: departments.map((department) => {
+        const rows = monthlyPayroll.filter((payroll) => payroll.employee.department === department);
+        return { department, employees: rows.length, total: rows.reduce((sum, payroll) => sum + payroll.payableSalary, 0) };
+      }),
+      attendanceSummary: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, presentDays: payroll.presentDays, absentDays: payroll.absentDays, lateDays: payroll.lateDays })),
+      overtimeReport: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, overtimeHours: payroll.overtimeHours, overtimePay: payroll.overtimePay })),
+      salaryDeductions: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, deductions: payroll.deductions, tax: payroll.tax })),
+      paymentHistory: monthlyPayroll.filter((payroll) => payroll.paymentStatus === "Paid")
+    };
+  }
+
+  async getPayroll(payrollId: string) {
+    return this.payrolls.find((payroll) => payroll.id === payrollId) ?? null;
+  }
+
+  async updatePayroll(payrollId: string, input: { bonus?: number; allowance?: number; deductions?: number; notes?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    const updated = this.calculatePayroll(payroll.employee, payroll.payrollMonth, payroll.payrollYear, {
+      id: payroll.id,
+      bonus: input.bonus ?? payroll.bonus,
+      allowance: input.allowance ?? payroll.allowance,
+      deductions: input.deductions ?? payroll.deductions,
+      paymentStatus: payroll.paymentStatus,
+      paymentDate: payroll.paymentDate,
+      paymentMethod: payroll.paymentMethod,
+      notes: input.notes ?? payroll.notes,
+      createdAt: payroll.createdAt
+    });
+    this.replacePayroll(updated, "updated", "Payroll adjustments updated");
+    return updated;
+  }
+
+  async markPayrollPaid(payrollId: string, input: { paymentMethod?: PayrollRecord["paymentMethod"]; paymentDate?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    payroll.paymentStatus = "Paid";
+    payroll.paymentMethod = input.paymentMethod ?? "Cash";
+    payroll.paymentDate = input.paymentDate ?? new Date().toISOString();
+    payroll.updatedAt = new Date().toISOString();
+    this.auditPayroll(payroll.id, "paid", `Paid via ${payroll.paymentMethod}`);
+    this.log(`Payroll ${payroll.employee.employeeCode} marked paid`);
+    return payroll;
+  }
+
+  async payrollPayslip(payrollId: string) {
+    return this.getPayroll(payrollId);
+  }
+
+  private upsertPayrollForEmployee(employee: Employee, month: number, year: number) {
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employee.id && payroll.payrollMonth === month && payroll.payrollYear === year);
+    const payroll = this.calculatePayroll(employee, month, year, existing ? {
+      id: existing.id,
+      bonus: existing.bonus,
+      allowance: existing.allowance,
+      deductions: existing.deductions,
+      paymentStatus: existing.paymentStatus,
+      paymentDate: existing.paymentDate,
+      paymentMethod: existing.paymentMethod,
+      notes: existing.notes,
+      createdAt: existing.createdAt
+    } : undefined);
+    this.replacePayroll(payroll, existing ? "recalculated" : "generated", existing ? "Payroll recalculated" : "Payroll generated");
+    return payroll;
+  }
+
+  private calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
+    const key = monthKey(month, year);
+    const attendance = this.attendance
+      .filter((record) => record.employeeId === employee.id && record.date.startsWith(key))
+      .map((record) => applyAttendanceCalculations(record, this.attendanceConfig));
+    return calculatePayrollRecord({
+      id: existing?.id ?? id("payroll"),
+      employee,
+      payrollMonth: month,
+      payrollYear: year,
+      attendance,
+      settings: this.payrollSettingsConfig,
+      bonus: existing?.bonus,
+      allowance: existing?.allowance,
+      extraDeductions: existing?.deductions,
+      paymentStatus: existing?.paymentStatus,
+      paymentDate: existing?.paymentDate,
+      paymentMethod: existing?.paymentMethod,
+      notes: existing?.notes,
+      createdAt: existing?.createdAt,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  private replacePayroll(payroll: PayrollRecord, action: string, details: string) {
+    this.payrolls = [payroll, ...this.payrolls.filter((item) => item.id !== payroll.id)];
+    this.auditPayroll(payroll.id, action, details);
+  }
+
+  private recalculateExistingPayrollForEmployee(employeeId: string, date: string) {
+    const employee = this.employees.find((item) => item.id === employeeId);
+    const [year, month] = date.split("-").map(Number);
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employeeId && payroll.payrollMonth === month && payroll.payrollYear === year);
+    if (employee && existing) {
+      this.upsertPayrollForEmployee(employee, month, year);
+    }
+  }
+
+  private auditPayroll(payrollId: string, action: string, details?: string) {
+    this.payrollAudit.unshift({ payrollId, action, details, at: new Date().toISOString() });
   }
 
   async listProducts() {

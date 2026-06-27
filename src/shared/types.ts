@@ -130,6 +130,65 @@ export interface Sale {
   createdAt: string;
 }
 
+export type PayrollPaymentStatus = "Pending" | "Paid";
+export type PayrollPaymentMethod = "Cash" | "Bank transfer" | "Mobile money";
+
+export interface PayrollSettings {
+  standardHoursPerDay: number;
+  workingDaysPerMonth: number;
+  gracePeriodMinutes: number;
+  overtimeRatePerHour: number;
+  latePenaltyEnabled: boolean;
+  latePenaltyAmount: number;
+  absenceDeductionEnabled: boolean;
+  taxPercentage?: number;
+  defaultAllowance: number;
+  defaultBonus: number;
+}
+
+export interface PayrollRecord {
+  id: string;
+  employeeId: string;
+  employee: Employee;
+  payrollMonth: number;
+  payrollYear: number;
+  basicSalary: number;
+  overtimeHours: number;
+  overtimePay: number;
+  bonus: number;
+  allowance: number;
+  deductions: number;
+  tax: number;
+  absentDays: number;
+  lateDays: number;
+  presentDays: number;
+  workingDays: number;
+  payableSalary: number;
+  paymentStatus: PayrollPaymentStatus;
+  paymentDate?: string;
+  paymentMethod?: PayrollPaymentMethod;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayrollDashboard {
+  awaitingPayment: number;
+  totalPayroll: number;
+  totalPaid: number;
+  totalUnpaid: number;
+  history: PayrollRecord[];
+}
+
+export interface PayrollReports {
+  monthlyPayroll: PayrollRecord[];
+  payrollByDepartment: Array<{ department: Department; total: number; employees: number }>;
+  attendanceSummary: Array<{ employeeName: string; presentDays: number; absentDays: number; lateDays: number }>;
+  overtimeReport: Array<{ employeeName: string; overtimeHours: number; overtimePay: number }>;
+  salaryDeductions: Array<{ employeeName: string; deductions: number; tax: number }>;
+  paymentHistory: PayrollRecord[];
+}
+
 export interface ProductionStage {
   id: string;
   productId: string;
