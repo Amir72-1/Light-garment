@@ -162,10 +162,14 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
 
 function ThemeToggle({ theme, onThemeChange }: { theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
   const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+  const nextTheme: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
   return (
     <div className="flex items-center gap-2">
+      <Button variant="secondary" className="h-9 w-9 px-0 sm:hidden" aria-label={`Theme: ${theme}`} onClick={() => onThemeChange(nextTheme[theme])}>
+        <Icon className="h-4 w-4" />
+      </Button>
       <Icon className="hidden h-4 w-4 text-slate-500 sm:block" />
-      <Select aria-label="Theme mode" className="h-9 w-[112px] sm:w-[136px]" value={theme} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}>
+      <Select aria-label="Theme mode" className="hidden h-9 w-[136px] sm:block" value={theme} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}>
         <option value="system">System</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
