@@ -48,6 +48,18 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 - `POST /sales` - Create invoice, track payment, and deduct stock. Use `amountPaid: 0` to save an unpaid sale.
 - `PATCH /sales/:id/pay` - Mark an unpaid or partially paid invoice paid with `{ amountPaid?, paymentMethod? }`.
 
+## Payroll
+
+- `GET /payroll/settings` - View payroll automation settings.
+- `PATCH /payroll/settings` - Owner updates payroll settings.
+- `POST /payroll/generate` - Owner/HR generates payroll for `{ month, year }` from attendance.
+- `GET /payroll/dashboard?month=&year=` - Payroll dashboard totals and history.
+- `GET /payroll?month=&year=` - Payroll history records.
+- `GET /payroll/reports?month=&year=` - Monthly, department, attendance, overtime, deduction, and payment reports.
+- `GET /payroll/:id/payslip` - Printable employee payslip data.
+- `PATCH /payroll/:id` - Owner/HR updates bonus, allowance, deductions, and notes.
+- `PATCH /payroll/:id/pay` - Owner/HR marks salary paid.
+
 ## Production
 
 - `GET /production` - Fabric to finished goods workflow stages.
