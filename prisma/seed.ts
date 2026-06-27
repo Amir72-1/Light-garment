@@ -30,6 +30,7 @@ async function main() {
     create: {
       employeeCode: "LGM-EMP-0001",
       fullName: "Miriam Bekele",
+      faydaNumber: "FIN-0001-0001",
       phoneNumber: "+251911000101",
       email: "miriam@lightgarment.example",
       address: "Addis Ababa, Ethiopia",
@@ -97,6 +98,7 @@ async function main() {
     create: {
       employeeCode: "LGM-EMP-0002",
       fullName: "Yonas Alemu",
+      faydaNumber: "FIN-0001-0002",
       phoneNumber: "+251911000303",
       address: "Bole, Addis Ababa",
       gender: "MALE",

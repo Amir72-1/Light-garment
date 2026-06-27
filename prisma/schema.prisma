@@ -40,8 +40,8 @@ enum EmployeeStatus {
 
 enum AttendanceStatus {
   PRESENT
-  PARTIAL
   ABSENT
+  LATE
 }
 
 enum InventoryMovementType {
@@ -129,6 +129,7 @@ model Employee {
   employeeCode   String          @unique
   fullName       String
   profileImageUrl String?
+  faydaNumber    String?         @unique
   phoneNumber    String
   email          String?         @unique
   address        String
@@ -150,16 +151,16 @@ model Attendance {
   id          String           @id @default(cuid())
   employeeId  String
   employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  workDate    DateTime
-  checkInAt   DateTime?
-  checkOutAt  DateTime?
-  status      AttendanceStatus @default(PRESENT)
-  notes       String?
+  date        String
+  checkInTime String?
+  checkOutTime String?
+  status      AttendanceStatus @default(ABSENT)
+  totalHours  Float?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  @@unique([employeeId, workDate])
-  @@index([workDate])
+  @@unique([employeeId, date])
+  @@index([date])
 }
 
 model Supplier {

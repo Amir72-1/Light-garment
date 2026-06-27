@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
   Boxes,
+  CalendarCheck,
   Factory,
   FileBarChart,
   LayoutDashboard,
@@ -11,17 +12,19 @@ import {
   PackagePlus,
   Settings,
   Shirt,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { Employee, Product, RoleName, UserSession } from "../shared/types";
+import type { AttendanceRecord, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
-type ModuleKey = "dashboard" | "employees" | "inventory" | "sales" | "production" | "reports" | "settings";
+type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 
 const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
   { key: "employees", label: "Employees", icon: Users, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["Owner", "Manager", "HR/Admin"] },
   { key: "inventory", label: "Shirts & Inventory", icon: Shirt, roles: ["Owner", "Manager", "Storekeeper", "Salesperson"] },
   { key: "sales", label: "POS Sales", icon: BadgeDollarSign, roles: ["Owner", "Manager", "Salesperson"] },
   { key: "production", label: "Production", icon: Factory, roles: ["Owner", "Manager"] },
@@ -81,8 +84,9 @@ export default function App() {
           </Button>
         </header>
         <section className="p-4 lg:p-8">
-          {active === "dashboard" && <Dashboard token={session.token} />}
+          {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
           {active === "employees" && <Employees token={session.token} />}
+          {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
           {active === "inventory" && <Inventory token={session.token} />}
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
@@ -132,8 +136,10 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
   );
 }
 
-function Dashboard({ token }: { token: string }) {
+function Dashboard({ token, role }: { token: string; role: RoleName }) {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.dashboard(token) });
+  const canViewAttendance = ["Owner", "Manager", "HR/Admin"].includes(role);
+  const attendanceStats = useQuery({ queryKey: ["attendance-stats-dashboard"], queryFn: () => api.attendanceStats(token), enabled: canViewAttendance });
   if (isLoading || !data) return <Loading />;
   return (
     <div className="grid gap-6">
@@ -143,6 +149,13 @@ function Dashboard({ token }: { token: string }) {
         <Metric title="Sales invoices" value={data.totalSales} icon={<BadgeDollarSign />} />
         <Metric title="Revenue" value={currency(data.revenue)} icon={<FileBarChart />} />
       </div>
+      {attendanceStats.data && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Metric title="Present today" value={attendanceStats.data.present} icon={<CalendarCheck />} />
+          <Metric title="Absent today" value={attendanceStats.data.absent} icon={<Users />} />
+          <Metric title="Late today" value={attendanceStats.data.late} icon={<FileBarChart />} />
+        </div>
+      )}
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <h3 className="text-lg font-bold">Low stock alerts</h3>
@@ -181,52 +194,78 @@ function Employees({ token }: { token: string }) {
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-      <div className="grid gap-6">
-        <Card>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500">Register, search, filter, profile, and attendance.</p></div>
-            <div className="grid gap-2 md:grid-cols-2">
-              <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
-              <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
-                <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
-              </Select>
-            </div>
-          </div>
-        </Card>
-        <div className="grid gap-4">
-          {employees.data?.data.map((employee) => (
-            <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
-              <button className="flex items-center gap-4 text-left" onClick={() => setSelected(employee)}>
-                <Avatar employee={employee} />
-                <div>
-                  <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
-                  <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
-                  <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
-                </div>
-              </button>
-              <div className="flex flex-wrap gap-2 md:justify-end">
-                <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
-                <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
-                <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>Delete</Button>
+    <>
+      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+        <div className="grid gap-6">
+          <Card>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500">Register, search, filter, profile, and attendance.</p></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
+                  <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
+                </Select>
               </div>
-            </Card>
-          ))}
-        </div>
-        <Card>
-          <h3 className="text-lg font-bold">Daily attendance log</h3>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
-              <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.workDate}</td><td>{record.checkInAt ? new Date(record.checkInAt).toLocaleTimeString() : "-"}</td><td>{record.checkOutAt ? new Date(record.checkOutAt).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
-            </table>
+            </div>
+          </Card>
+          <div className="grid gap-4">
+            {employees.data?.data.map((employee) => (
+              <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" onClick={() => setSelected(employee)}>
+                  <Avatar employee={employee} />
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
+                    <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
+                    <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
+                  </div>
+                </button>
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
+                  <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
+                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>Delete</Button>
+                </div>
+              </Card>
+            ))}
           </div>
-        </Card>
+          <Card>
+            <h3 className="text-lg font-bold">Daily attendance log</h3>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
+                <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+        <div className="grid gap-6 self-start">
+          <EmployeeForm pending={createEmployee.isPending} onSubmit={(form) => createEmployee.mutate(form)} />
+        </div>
       </div>
-      <div className="grid gap-6">
-        <EmployeeForm pending={createEmployee.isPending} onSubmit={(form) => createEmployee.mutate(form)} />
-        {selected && <EmployeeProfile employee={selected} />}
-      </div>
+      {selected && (
+        <EmployeeProfileDialog employee={selected} onClose={() => setSelected(null)} />
+      )}
+    </>
+  );
+}
+
+function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="employee-profile-title" className="text-xl font-black">Employee profile</h3>
+            <p className="text-sm text-slate-500">Full HR record for {employee.fullName}.</p>
+          </div>
+          <Button variant="ghost" className="h-9 w-9 px-0" aria-label="Close employee profile" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
+        <dl className="mt-4 grid gap-2 text-sm">
+          {Object.entries({ "Fayda number": employee.faydaNumber || "Not provided", Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
+        </dl>
+      </Card>
     </div>
   );
 }
@@ -237,12 +276,17 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
       <h3 className="text-lg font-bold">Add employee</h3>
       <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
         <Field label="Full name"><Input name="fullName" required /></Field>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Phone"><Input name="phoneNumber" required /></Field><Field label="Email"><Input name="email" type="email" /></Field></div>
+        <Field label="Fayda number"><Input name="faydaNumber" placeholder="FIN / Fayda ID number" /></Field>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Phone"><Input name="phoneNumber" required /></Field>
+          <Field label="Email (optional)"><Input name="email" type="email" placeholder="Leave blank if none" /></Field>
+        </div>
+        <p className="-mt-2 text-xs text-slate-500">Employees can be registered without an email address.</p>
         <Field label="Address"><Textarea name="address" rows={2} required /></Field>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Gender"><Select name="gender" required><option>Female</option><option>Male</option><option>Other</option></Select></Field><Field label="Date of birth"><Input name="dateOfBirth" type="date" required /></Field></div>
+        <div className="grid gap-3 md:grid-cols-2"><Field label="Gender"><Select name="gender" required><option>Female</option><option>Male</option><option>Other</option></Select></Field><Field label="Date of birth"><Input name="dateOfBirth" placeholder="YYYY-MM-DD" required /></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Position"><Input name="position" required placeholder="Tailor" /></Field><Field label="Department"><Select name="department" required><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option></Select></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Salary"><Input name="salary" type="number" required /></Field><Field label="Employment type"><Select name="employmentType" required><option>Full-time</option><option>Part-time</option><option>Contract</option></Select></Field></div>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Hire date"><Input name="hireDate" type="date" required /></Field><Field label="Status"><Select name="status"><option>Active</option><option>Inactive</option></Select></Field></div>
+        <div className="grid gap-3 md:grid-cols-2"><Field label="Hire date"><Input name="hireDate" placeholder="YYYY-MM-DD" required /></Field><Field label="Status"><Select name="status"><option>Active</option><option>Inactive</option></Select></Field></div>
         <Field label="Profile picture"><Input name="profilePicture" type="file" accept="image/*" /></Field>
         <Button disabled={pending}>{pending ? "Saving..." : "Register employee"}</Button>
       </form>
@@ -250,20 +294,135 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
   );
 }
 
-function EmployeeProfile({ employee }: { employee: Employee }) {
+function Avatar({ employee, large = false }: { employee: Employee; large?: boolean }) {
+  return employee.profileImageUrl ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", large ? "h-20 w-20" : "h-14 w-14")} /> : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700", large ? "h-20 w-20 text-2xl" : "h-14 w-14")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+}
+
+function Attendance({ token, role }: { token: string; role: RoleName }) {
+  const queryClient = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+  const [date, setDate] = useState(today);
+  const [search, setSearch] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [month, setMonth] = useState(currentMonth);
+  const canManualEdit = role === "Owner" || role === "HR/Admin";
+  const attendance = useQuery({ queryKey: ["attendance-today", date], queryFn: () => api.attendanceToday(token, date) });
+  const stats = useQuery({ queryKey: ["attendance-stats", date], queryFn: () => api.attendanceStats(token, date) });
+  const selectedId = selectedEmployeeId;
+  const monthReport = useQuery({ queryKey: ["attendance-month", selectedId, month], queryFn: () => api.attendanceMonth(token, selectedId, month), enabled: Boolean(selectedId) });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["attendance-today"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-month"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-stats-dashboard"] });
+  };
+  const checkIn = useMutation({ mutationFn: (employeeId: string) => api.checkIn(token, employeeId, date), onSuccess: invalidate });
+  const checkOut = useMutation({ mutationFn: (employeeId: string) => api.checkOut(token, employeeId, date), onSuccess: invalidate });
+  const manual = useMutation({ mutationFn: (body: Record<string, unknown>) => api.manualAttendance(token, body), onSuccess: invalidate });
+  const rows = (attendance.data || []).filter((record) => record.employeeName.toLowerCase().includes(search.toLowerCase()));
+
   return (
-    <Card>
-      <h3 className="text-lg font-bold">Employee profile</h3>
-      <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
-      <dl className="mt-4 grid gap-2 text-sm">
-        {Object.entries({ Phone: employee.phoneNumber, Email: employee.email || "-", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="font-semibold text-right">{value}</dd></div>)}
-      </dl>
-    </Card>
+    <div className="grid gap-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Metric title="Present" value={stats.data?.present ?? 0} icon={<CalendarCheck />} />
+        <Metric title="Absent" value={stats.data?.absent ?? 0} icon={<Users />} />
+        <Metric title="Late" value={stats.data?.late ?? 0} icon={<FileBarChart />} />
+      </div>
+      <Card>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-black">Daily Attendance</h2>
+            <p className="text-sm text-slate-500">Start time: {import.meta.env.VITE_ATTENDANCE_START_TIME || "09:00"} · Manager can check in/out, HR/Admin can manually edit.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input placeholder="Search employee" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </div>
+        </div>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[880px] text-left text-sm">
+            <thead className="text-slate-500">
+              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Actions</th>{canManualEdit && <th>HR edit</th>}</tr>
+            </thead>
+            <tbody>
+              {rows.map((record) => (
+                <tr key={`${record.employeeId}-${record.date}`} className={cn("border-t", selectedEmployeeId === record.employeeId && "bg-emerald-50/70")}>
+                  <td className="py-3">
+                    <button className="font-semibold text-emerald-700 hover:underline" onClick={() => setSelectedEmployeeId(record.employeeId)}>{record.employeeName}</button>
+                    <p className="text-xs text-slate-500">{record.employeeCode}</p>
+                  </td>
+                  <td>{record.department}</td>
+                  <td><AttendanceBadge status={record.status} /></td>
+                  <td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td>
+                  <td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td>
+                  <td>{record.totalHours ?? "-"}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" disabled={Boolean(record.checkInTime) || checkIn.isPending} onClick={() => checkIn.mutate(record.employeeId)}>Check-in</Button>
+                      <Button variant="secondary" disabled={!record.checkInTime || Boolean(record.checkOutTime) || checkOut.isPending} onClick={() => checkOut.mutate(record.employeeId)}>Check-out</Button>
+                    </div>
+                  </td>
+                  {canManualEdit && (
+                    <td>
+                      <Select value={record.status} onChange={(event) => manual.mutate({ employeeId: record.employeeId, date, status: event.target.value })}>
+                        <option>Present</option>
+                        <option>Absent</option>
+                        <option>Late</option>
+                      </Select>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <Card>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-xl font-black">Employee Attendance Profile</h3>
+            <p className="text-sm text-slate-500">Monthly attendance percentage and working-day summary.</p>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Select value={selectedId} onChange={(event) => setSelectedEmployeeId(event.target.value)}>
+              <option value="">Select employee</option>
+              {attendance.data?.map((record) => <option key={record.employeeId} value={record.employeeId}>{record.employeeName}</option>)}
+            </Select>
+            <Input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+          </div>
+        </div>
+        {!selectedId && <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Select an employee from the daily table or dropdown to view the monthly attendance profile.</p>}
+        {selectedId && monthReport.data && (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[260px_1fr]">
+            <div className="rounded-2xl bg-emerald-50 p-4">
+              <p className="text-sm text-emerald-700">{monthReport.data.employee.employeeCode}</p>
+              <h4 className="text-xl font-black">{monthReport.data.employee.fullName}</h4>
+              <p className="mt-2 text-sm text-slate-600">{monthReport.data.employee.position} · {monthReport.data.employee.department}</p>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-slate-500">Attendance</p><p className="text-2xl font-black">{monthReport.data.attendancePercentage}%</p></div>
+                <div><p className="text-slate-500">Working days</p><p className="text-2xl font-black">{monthReport.data.totalWorkingDays}</p></div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th></tr></thead>
+                <tbody>
+                  {monthReport.data.records.length ? monthReport.data.records.map((record) => (
+                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td>{record.totalHours ?? "-"}</td></tr>
+                  )) : <tr><td className="py-4 text-slate-500" colSpan={5}>No attendance records for this month.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
-function Avatar({ employee, large = false }: { employee: Employee; large?: boolean }) {
-  return employee.profileImageUrl ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", large ? "h-20 w-20" : "h-14 w-14")} /> : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700", large ? "h-20 w-20 text-2xl" : "h-14 w-14")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+function AttendanceBadge({ status }: { status: AttendanceRecord["status"] }) {
+  return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800")}>{status}</Badge>;
 }
 
 function Inventory({ token }: { token: string }) {
@@ -273,6 +432,7 @@ function Inventory({ token }: { token: string }) {
   const rawMaterials = useQuery({ queryKey: ["raw"], queryFn: () => api.rawMaterials(token) });
   const productCreate = useMutation({ mutationFn: (body: Partial<Product>) => api.createProduct(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
   const stockMove = useMutation({ mutationFn: (body: Record<string, unknown>) => api.moveStock(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
+  const rawCreate = useMutation({ mutationFn: (body: Omit<RawMaterial, "id">) => api.createRawMaterial(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
   const firstProduct = products.data?.[0];
 
   return (
@@ -310,7 +470,12 @@ function Inventory({ token }: { token: string }) {
         </Card>
         <Card>
           <h3 className="text-lg font-bold">Raw materials</h3>
-          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category})</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
+          <form className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); rawCreate.mutate({ name: String(form.name), category: form.category as RawMaterial["category"], unit: String(form.unit), quantity: Number(form.quantity), reorderLevel: Number(form.reorderLevel), unitCost: Number(form.unitCost) }); event.currentTarget.reset(); }}>
+            <div className="grid gap-3 md:grid-cols-2"><Field label="Material name"><Input name="name" placeholder="Denim fabric" required /></Field><Field label="Category"><Select name="category" required><option>Fabric</option><option>Thread</option><option>Buttons</option><option>Labels</option><option>Packaging</option></Select></Field></div>
+            <div className="grid gap-3 md:grid-cols-3"><Field label="Unit"><Input name="unit" placeholder="meter" required /></Field><Field label="Quantity"><Input name="quantity" type="number" step="0.01" required /></Field><Field label="Reorder level"><Input name="reorderLevel" type="number" step="0.01" required /></Field></div>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]"><Field label="Unit cost"><Input name="unitCost" type="number" step="0.01" required /></Field><Button disabled={rawCreate.isPending} className="self-end">{rawCreate.isPending ? "Saving..." : "Add raw material"}</Button></div>
+          </form>
+          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category}) · {currency(material.unitCost)} / {material.unit}</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
         </Card>
       </div>
     </div>
@@ -323,8 +488,23 @@ function Sales({ token }: { token: string }) {
   const sales = useQuery({ queryKey: ["sales"], queryFn: () => api.sales(token) });
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState<Sale["paymentMethod"]>("Cash");
   const selected = products.data?.find((product) => product.id === productId) || products.data?.[0];
-  const createSale = useMutation({ mutationFn: () => api.createSale(token, { customerName: "Walk-in customer", items: [{ productId: selected?.id, quantity }], amountPaid: (selected?.sellingPrice || 0) * quantity, paymentMethod: "Cash" }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sales"] }); queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
+  const total = (selected?.sellingPrice || 0) * quantity;
+  const invalidateSales = () => {
+    queryClient.invalidateQueries({ queryKey: ["sales"] });
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
+  const createSale = useMutation({
+    mutationFn: (paid: boolean) => api.createSale(token, { customerName: "Walk-in customer", items: [{ productId: selected?.id, quantity }], amountPaid: paid ? total : 0, paymentMethod }),
+    onSuccess: invalidateSales
+  });
+  const markPaid = useMutation({
+    mutationFn: (sale: Sale) => api.markSalePaid(token, sale.id, { amountPaid: sale.total, paymentMethod: sale.paymentMethod || paymentMethod }),
+    onSuccess: invalidateSales
+  });
+  const unpaidSales = sales.data?.filter((sale) => sale.paymentStatus !== "Paid") ?? [];
   return (
     <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
       <Card>
@@ -332,17 +512,30 @@ function Sales({ token }: { token: string }) {
         <div className="mt-4 grid gap-3">
           <Field label="Product"><Select value={selected?.id || ""} onChange={(event) => setProductId(event.target.value)}>{products.data?.map((product) => <option key={product.id} value={product.id}>{product.productName} - {currency(product.sellingPrice)}</option>)}</Select></Field>
           <Field label="Quantity"><Input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></Field>
-          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-sm text-emerald-700">Invoice total</p><p className="text-3xl font-black">{currency((selected?.sellingPrice || 0) * quantity)}</p></div>
-          <Button disabled={!selected || createSale.isPending} onClick={() => createSale.mutate()}>Generate invoice</Button>
+          <Field label="Payment method"><Select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as Sale["paymentMethod"])}><option>Cash</option><option>Card</option><option>Bank transfer</option><option>Mobile money</option></Select></Field>
+          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-sm text-emerald-700">Invoice total</p><p className="text-3xl font-black">{currency(total)}</p></div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button disabled={!selected || createSale.isPending} onClick={() => createSale.mutate(true)}>Generate paid invoice</Button>
+            <Button variant="secondary" disabled={!selected || createSale.isPending} onClick={() => createSale.mutate(false)}>Save unpaid sale</Button>
+          </div>
           {createSale.error && <p className="text-sm text-rose-700">{createSale.error.message}</p>}
         </div>
       </Card>
       <Card>
-        <h2 className="text-xl font-black">Recent invoices</h2>
-        <div className="mt-4 grid gap-3">{sales.data?.map((sale) => <div key={sale.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex justify-between"><b>{sale.invoiceNumber}</b><Badge>{sale.paymentStatus}</Badge></div><p className="mt-2 text-sm text-slate-500">{sale.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</p><p className="mt-2 font-black">{currency(sale.total)}</p></div>)}</div>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Recent invoices</h2>
+            <p className="text-sm text-slate-500">{unpaidSales.length} unpaid invoice{unpaidSales.length === 1 ? "" : "s"} awaiting payment.</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3">{sales.data?.map((sale) => <div key={sale.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b>{sale.invoiceNumber}</b><SaleStatusBadge status={sale.paymentStatus} /></div><p className="mt-2 text-sm text-slate-500">{sale.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")}</p><div className="mt-3 flex flex-wrap items-center justify-between gap-2"><div><p className="font-black">{currency(sale.total)}</p><p className="text-xs text-slate-500">Paid {currency(sale.amountPaid)} · {sale.paymentMethod}</p></div>{sale.paymentStatus !== "Paid" && <Button disabled={markPaid.isPending} onClick={() => markPaid.mutate(sale)}>Mark paid</Button>}</div></div>)}</div>
       </Card>
     </div>
   );
+}
+
+function SaleStatusBadge({ status }: { status: Sale["paymentStatus"] }) {
+  return <Badge className={cn(status === "Paid" && "bg-emerald-100 text-emerald-800", status === "Pending" && "bg-amber-100 text-amber-800", status === "Partial" && "bg-sky-100 text-sky-800")}>{status === "Pending" ? "Unpaid" : status}</Badge>;
 }
 
 function Production({ token }: { token: string }) {

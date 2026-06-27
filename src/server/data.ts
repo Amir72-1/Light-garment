@@ -2,8 +2,10 @@ import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import type {
   AttendanceRecord,
+  AttendanceStats,
   DashboardMetrics,
   Employee,
+  EmployeeAttendanceProfile,
   InventoryMovement,
   Paginated,
   Product,
@@ -37,12 +39,30 @@ type EmployeeInput = Omit<Employee, "id" | "employeeCode"> & { employeeCode?: st
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const todayKey = () => new Date().toISOString().slice(0, 10);
+const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
 
 function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
   const safePage = Math.max(1, page);
   const safePageSize = Math.min(100, Math.max(1, pageSize));
   const start = (safePage - 1) * safePageSize;
   return { data: items.slice(start, start + safePageSize), page: safePage, pageSize: safePageSize, total: items.length };
+}
+
+function isLate(checkInTime: string) {
+  const time = new Date(checkInTime).toTimeString().slice(0, 5);
+  return time > startTime;
+}
+
+function totalHours(checkInTime?: string, checkOutTime?: string) {
+  if (!checkInTime || !checkOutTime) return undefined;
+  const hours = (new Date(checkOutTime).getTime() - new Date(checkInTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(hours * 100) / 100);
+}
+
+function workingDaysInMonth(month: string) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const days = new Date(year, monthIndex, 0).getDate();
+  return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
 }
 
 export class DemoRepository {
@@ -84,6 +104,7 @@ export class DemoRepository {
         id: "emp_1",
         employeeCode: "LGM-EMP-0001",
         fullName: "Miriam Bekele",
+        faydaNumber: "FIN-0001-0001",
         phoneNumber: "+251911000101",
         email: "miriam@lightgarment.example",
         address: "Bole, Addis Ababa",
@@ -101,6 +122,7 @@ export class DemoRepository {
         id: "emp_2",
         employeeCode: "LGM-EMP-0002",
         fullName: "Yonas Alemu",
+        faydaNumber: "FIN-0001-0002",
         phoneNumber: "+251911000303",
         address: "Akaki Kality, Addis Ababa",
         gender: "Male",
@@ -117,6 +139,7 @@ export class DemoRepository {
         id: "emp_3",
         employeeCode: "LGM-EMP-0003",
         fullName: "Sara Hailu",
+        faydaNumber: "FIN-0001-0003",
         phoneNumber: "+251911000404",
         email: "sara@lightgarment.example",
         address: "CMC, Addis Ababa",
@@ -228,7 +251,7 @@ export class DemoRepository {
     let rows = [...this.employees];
     if (query.search) {
       const search = query.search.toLowerCase();
-      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
+      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
     }
     if (query.department) rows = rows.filter((employee) => employee.department === query.department);
     if (query.position) rows = rows.filter((employee) => employee.position.toLowerCase().includes(query.position!.toLowerCase()));
@@ -270,33 +293,102 @@ export class DemoRepository {
     return true;
   }
 
-  async listAttendance() {
-    return [...this.attendance].sort((left, right) => right.workDate.localeCompare(left.workDate));
+  async listAttendance(date = todayKey()) {
+    return this.attendanceForDate(date);
   }
 
-  async checkIn(employeeId: string) {
+  async attendanceToday(date = todayKey()) {
+    return this.attendanceForDate(date);
+  }
+
+  async attendanceStats(date = todayKey()): Promise<AttendanceStats> {
+    const rows = await this.attendanceToday(date);
+    return {
+      date,
+      present: rows.filter((item) => item.status === "Present").length,
+      absent: rows.filter((item) => item.status === "Absent").length,
+      late: rows.filter((item) => item.status === "Late").length
+    };
+  }
+
+  async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.getEmployee(employeeId);
     if (!employee) return null;
-    const workDate = todayKey();
-    let record = this.attendance.find((item) => item.employeeId === employeeId && item.workDate === workDate);
+    const records = this.attendance
+      .filter((item) => item.employeeId === employeeId && item.date.startsWith(month))
+      .sort((left, right) => left.date.localeCompare(right.date));
+    const totalWorkingDays = workingDaysInMonth(month).length;
+    const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
+    return { employee, month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
+  }
+
+  async checkIn(employeeId: string, date = todayKey(), checkInTime = nowIso()) {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee) return null;
+    let record = this.attendance.find((item) => item.employeeId === employeeId && item.date === date);
+    if (record?.checkInTime) {
+      throw new Error("Employee already checked in today");
+    }
+    const status = isLate(checkInTime) ? "Late" : "Present";
     if (!record) {
-      record = { id: id("att"), employeeId, employeeName: employee.fullName, workDate, checkInAt: nowIso(), status: "Present" };
+      record = this.recordForEmployee(employee, date, { checkInTime, status });
       this.attendance.unshift(record);
     } else {
-      record.checkInAt = record.checkInAt ?? nowIso();
-      record.status = "Present";
+      record.checkInTime = checkInTime;
+      record.status = status;
     }
     this.log(`${employee.fullName} checked in`);
     return record;
   }
 
-  async checkOut(employeeId: string) {
-    const record = this.attendance.find((item) => item.employeeId === employeeId && item.workDate === todayKey());
+  async checkOut(employeeId: string, date = todayKey(), checkOutTime = nowIso()) {
+    const record = this.attendance.find((item) => item.employeeId === employeeId && item.date === date);
     if (!record) return null;
-    record.checkOutAt = nowIso();
-    record.status = "Present";
+    record.checkOutTime = checkOutTime;
+    record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
     this.log(`${record.employeeName} checked out`);
     return record;
+  }
+
+  async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.getEmployee(input.employeeId);
+    if (!employee) return null;
+    const date = input.date || todayKey();
+    let record = this.attendance.find((item) => item.employeeId === input.employeeId && item.date === date);
+    if (!record) {
+      record = this.recordForEmployee(employee, date, input);
+      this.attendance.unshift(record);
+    } else {
+      record.status = input.status;
+      record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
+      record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
+      record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    }
+    this.log(`${employee.fullName} attendance marked ${record.status}`);
+    return record;
+  }
+
+  private attendanceForDate(date: string) {
+    return this.employees.map((employee) => {
+      const existing = this.attendance.find((item) => item.employeeId === employee.id && item.date === date);
+      return existing ?? this.recordForEmployee(employee, date, { status: "Absent" });
+    }).sort((left, right) => left.employeeName.localeCompare(right.employeeName));
+  }
+
+  private recordForEmployee(employee: Employee, date: string, input: Partial<AttendanceRecord>): AttendanceRecord {
+    return {
+      id: id("att"),
+      employeeId: employee.id,
+      employeeName: employee.fullName,
+      employeeCode: employee.employeeCode,
+      department: employee.department,
+      position: employee.position,
+      date,
+      checkInTime: input.checkInTime,
+      checkOutTime: input.checkOutTime,
+      status: input.status || "Absent",
+      totalHours: totalHours(input.checkInTime, input.checkOutTime)
+    };
   }
 
   async listProducts() {
@@ -330,6 +422,13 @@ export class DemoRepository {
 
   async listRawMaterials() {
     return this.rawMaterials;
+  }
+
+  async createRawMaterial(input: Omit<RawMaterial, "id">) {
+    const material: RawMaterial = { ...input, id: id("raw") };
+    this.rawMaterials.unshift(material);
+    this.log(`Raw material ${material.name} registered`);
+    return material;
   }
 
   async listProduction() {
@@ -381,6 +480,16 @@ export class DemoRepository {
     return sale;
   }
 
+  async markSalePaid(saleId: string, amountPaid?: number, paymentMethod?: Sale["paymentMethod"]) {
+    const sale = this.sales.find((item) => item.id === saleId);
+    if (!sale) return null;
+    sale.amountPaid = amountPaid ?? sale.total;
+    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
+    sale.paymentStatus = sale.amountPaid >= sale.total ? "Paid" : sale.amountPaid > 0 ? "Partial" : "Pending";
+    this.log(`Invoice ${sale.invoiceNumber} marked ${sale.paymentStatus}`);
+    return sale;
+  }
+
   async reports() {
     const inventoryValue = this.products.reduce((sum, product) => sum + product.quantity * product.costPrice, 0);
     const salesRevenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);
@@ -390,7 +499,7 @@ export class DemoRepository {
     }, 0), 0);
     return {
       employeeReport: { total: this.employees.length, active: this.employees.filter((employee) => employee.status === "Active").length },
-      attendanceReport: { today: this.attendance.filter((item) => item.workDate === todayKey()).length, records: this.attendance },
+      attendanceReport: { today: this.attendance.filter((item) => item.date === todayKey()).length, records: this.attendance },
       inventoryReport: { totalUnits: this.products.reduce((sum, product) => sum + product.quantity, 0), inventoryValue },
       salesReport: { invoices: this.sales.length, revenue: salesRevenue },
       profitReport: { revenue: salesRevenue, cogs, grossProfit: salesRevenue - cogs }

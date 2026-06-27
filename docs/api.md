@@ -17,13 +17,21 @@ All routes except health, login, and password reset require `Authorization: Bear
 ## Employees and Attendance
 
 - `GET /employees?search=&department=&position=&page=&pageSize=&sortBy=&sortOrder=` - Paginated employee list.
-- `POST /employees` - Multipart employee registration with optional `profilePicture`.
+- `POST /employees` - Multipart employee registration with optional `profilePicture`, optional `email`, and optional `faydaNumber`.
 - `GET /employees/:id` - Employee profile.
 - `PUT /employees/:id` - Multipart employee update with optional `profilePicture`.
 - `DELETE /employees/:id` - Delete employee.
-- `GET /attendance` - Daily attendance log.
-- `POST /attendance/:employeeId/check-in` - Check an employee in for today.
-- `POST /attendance/:employeeId/check-out` - Check an employee out for today.
+
+## Attendance
+
+Owner and HR/Admin have full attendance access. Manager can view and check employees in/out. Storekeeper and Salesperson cannot access attendance APIs.
+
+- `POST /attendance/check-in` - Mark employee check-in with `{ employeeId, date?, time? }`; late status is applied after the configured start time.
+- `POST /attendance/check-out` - Mark employee check-out with `{ employeeId, date?, time? }` and calculate `totalHours`.
+- `POST /attendance/manual` - Owner/HR manual edit with `{ employeeId, date, status, checkInTime?, checkOutTime? }`.
+- `GET /attendance/today?date=YYYY-MM-DD` - List all employees and attendance status for a day.
+- `GET /attendance/month/:employeeId?month=YYYY-MM` - Employee monthly attendance profile.
+- `GET /attendance/stats?date=YYYY-MM-DD` - Present, absent, and late summary counts.
 
 ## Shirts, Inventory, and Raw Materials
 
@@ -32,11 +40,13 @@ All routes except health, login, and password reset require `Authorization: Bear
 - `GET /inventory` - Stock movement history.
 - `POST /inventory/movements` - Create `Stock in`, `Stock out`, `Transfer`, or `Adjustment` movement.
 - `GET /raw-materials` - Fabric, thread, buttons, labels, and packaging stock.
+- `POST /raw-materials` - Register a raw material with `{ name, category, unit, quantity, reorderLevel, unitCost }`.
 
 ## Sales POS
 
 - `GET /sales` - Invoice history.
-- `POST /sales` - Create invoice, track payment, and deduct stock.
+- `POST /sales` - Create invoice, track payment, and deduct stock. Use `amountPaid: 0` to save an unpaid sale.
+- `PATCH /sales/:id/pay` - Mark an unpaid or partially paid invoice paid with `{ amountPaid?, paymentMethod? }`.
 
 ## Production
 
