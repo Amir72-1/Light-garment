@@ -125,6 +125,18 @@ const manualAttendanceSchema = z.object({
   checkOutTime: z.string().datetime().optional().or(z.literal(""))
 });
 
+const attendanceTimeEditSchema = z.object({
+  employeeId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  checkInTime: z.string().datetime().optional().or(z.literal("")),
+  checkOutTime: z.string().datetime().optional().or(z.literal(""))
+});
+
+const attendanceSettingsSchema = z.object({
+  startTime: z.string().regex(/^\d{2}:\d{2}$/),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/)
+});
+
 function sign(user: AuthUser) {
   return jwt.sign(user, jwtSecret, { expiresIn: "8h" });
 }
@@ -281,6 +293,24 @@ export async function createApp() {
       checkOutTime: parsed.checkOutTime || undefined
     });
     response.status(record ? 200 : 404).json(record ?? { message: "Employee not found" });
+  }));
+
+  app.patch("/api/attendance/times", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const parsed = attendanceTimeEditSchema.parse(request.body);
+    const record = await repository.updateAttendanceTimes({
+      ...parsed,
+      checkInTime: parsed.checkInTime || undefined,
+      checkOutTime: parsed.checkOutTime || undefined
+    });
+    response.status(record ? 200 : 404).json(record ?? { message: "Employee not found" });
+  }));
+
+  app.get("/api/attendance/settings", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.attendanceSettings());
+  }));
+
+  app.patch("/api/attendance/settings", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.json(await repository.updateAttendanceSettings(attendanceSettingsSchema.parse(request.body)));
   }));
 
   app.get("/api/attendance/today", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {

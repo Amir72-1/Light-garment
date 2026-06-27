@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type {
   AttendanceRecord,
+  AttendanceSettings,
   AttendanceStats,
   DashboardMetrics,
   Department,
@@ -55,7 +56,10 @@ const rawCategoryFromDb: Record<string, RawMaterial["category"]> = { FABRIC: "Fa
 const rawCategoryToDb: Record<RawMaterial["category"], string> = { Fabric: "FABRIC", Thread: "THREAD", Buttons: "BUTTONS", Labels: "LABELS", Packaging: "PACKAGING" };
 const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late" };
 const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE" };
-const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
+const defaultAttendanceSettings: AttendanceSettings = {
+  startTime: process.env.ATTENDANCE_START_TIME || "09:00",
+  endTime: process.env.ATTENDANCE_END_TIME || "17:00"
+};
 
 function isoDate(value: Date | string) {
   return new Date(value).toISOString().slice(0, 10);
@@ -86,7 +90,7 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isLate(checkInTime: string) {
+function isLate(checkInTime: string, startTime: string) {
   const time = new Date(checkInTime).toTimeString().slice(0, 5);
   return time > startTime;
 }
@@ -150,6 +154,8 @@ function productFromDb(row: any): Product {
 }
 
 export class PrismaRepository {
+  private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
+
   constructor(private prisma: PrismaClient) {}
 
   static create() {
@@ -305,6 +311,15 @@ export class PrismaRepository {
     };
   }
 
+  async attendanceSettings() {
+    return this.attendanceConfig;
+  }
+
+  async updateAttendanceSettings(settings: AttendanceSettings) {
+    this.attendanceConfig = settings;
+    return this.attendanceConfig;
+  }
+
   async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
@@ -326,8 +341,8 @@ export class PrismaRepository {
     if (existing?.checkInTime) throw new Error("Employee already checked in today");
     const row = await this.prisma.attendance.upsert({
       where: { employeeId_date: { employeeId, date } },
-      update: { checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
-      create: { employeeId, date, checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
+      update: { checkInTime, status: (isLate(checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") as any },
+      create: { employeeId, date, checkInTime, status: (isLate(checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") as any },
       include: { employee: true }
     });
     return attendanceFromRow(row);
@@ -361,6 +376,31 @@ export class PrismaRepository {
         status: attendanceToDb[input.status] as any,
         checkInTime: input.checkInTime,
         checkOutTime: input.checkOutTime,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+      },
+      include: { employee: true }
+    });
+    return attendanceFromRow(row);
+  }
+
+  async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: input.employeeId } });
+    if (!employee) return null;
+    const status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") : "ABSENT";
+    const row = await this.prisma.attendance.upsert({
+      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
+      update: {
+        checkInTime: input.checkInTime ?? null,
+        checkOutTime: input.checkOutTime ?? null,
+        status: status as any,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime) ?? null
+      },
+      create: {
+        employeeId: input.employeeId,
+        date: input.date,
+        checkInTime: input.checkInTime,
+        checkOutTime: input.checkOutTime,
+        status: status as any,
         totalHours: totalHours(input.checkInTime, input.checkOutTime)
       },
       include: { employee: true }

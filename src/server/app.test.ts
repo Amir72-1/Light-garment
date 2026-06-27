@@ -109,6 +109,42 @@ describe("Light Garment ERP API", () => {
     expect(month.body.attendancePercentage).toBeGreaterThan(0);
   });
 
+  it("lets owner edit attendance start/end settings and check-in/check-out times", async () => {
+    const { app, token } = await login();
+    const employees = await request(app)
+      .get("/api/employees?pageSize=10")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const employee = employees.body.data.find((item: { fullName: string }) => item.fullName === "Miriam Bekele");
+    const date = "2026-06-27";
+
+    const settings = await request(app)
+      .patch("/api/attendance/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startTime: "08:00", endTime: "16:30" })
+      .expect(200);
+
+    expect(settings.body).toEqual({ startTime: "08:00", endTime: "16:30" });
+
+    const edited = await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date, checkInTime: "2026-06-27T07:30:00.000Z", checkOutTime: "2026-06-27T16:30:00.000Z" })
+      .expect(200);
+
+    expect(edited.body.status).toBe("Present");
+    expect(edited.body.totalHours).toBe(9);
+
+    const today = await request(app)
+      .get(`/api/attendance/today?date=${date}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const row = today.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(row.checkInTime).toBe("2026-06-27T07:30:00.000Z");
+    expect(row.checkOutTime).toBe("2026-06-27T16:30:00.000Z");
+  });
+
   it("blocks storekeeper and sales roles from attendance module APIs", async () => {
     const { app, token } = await login("sales@lightgarment.example");
     await request(app).get("/api/attendance/today").set("Authorization", `Bearer ${token}`).expect(403);

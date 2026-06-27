@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 
@@ -306,9 +306,11 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
   const [search, setSearch] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [month, setMonth] = useState(currentMonth);
+  const isOwner = role === "Owner";
   const canManualEdit = role === "Owner" || role === "HR/Admin";
   const attendance = useQuery({ queryKey: ["attendance-today", date], queryFn: () => api.attendanceToday(token, date) });
   const stats = useQuery({ queryKey: ["attendance-stats", date], queryFn: () => api.attendanceStats(token, date) });
+  const settings = useQuery({ queryKey: ["attendance-settings"], queryFn: () => api.attendanceSettings(token) });
   const selectedId = selectedEmployeeId;
   const monthReport = useQuery({ queryKey: ["attendance-month", selectedId, month], queryFn: () => api.attendanceMonth(token, selectedId, month), enabled: Boolean(selectedId) });
   const invalidate = () => {
@@ -320,6 +322,14 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
   const checkIn = useMutation({ mutationFn: (employeeId: string) => api.checkIn(token, employeeId, date), onSuccess: invalidate });
   const checkOut = useMutation({ mutationFn: (employeeId: string) => api.checkOut(token, employeeId, date), onSuccess: invalidate });
   const manual = useMutation({ mutationFn: (body: Record<string, unknown>) => api.manualAttendance(token, body), onSuccess: invalidate });
+  const editTimes = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateAttendanceTimes(token, body), onSuccess: invalidate });
+  const updateSettings = useMutation({
+    mutationFn: (body: AttendanceSettings) => api.updateAttendanceSettings(token, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendance-settings"] });
+      invalidate();
+    }
+  });
   const rows = (attendance.data || []).filter((record) => record.employeeName.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -329,11 +339,26 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
         <Metric title="Absent" value={stats.data?.absent ?? 0} icon={<Users />} />
         <Metric title="Late" value={stats.data?.late ?? 0} icon={<FileBarChart />} />
       </div>
+      {isOwner && settings.data && (
+        <Card>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-lg font-bold">Attendance time settings</h3>
+              <p className="text-sm text-slate-500">Start time controls Late status. End time defines the expected workday finish.</p>
+            </div>
+            <form className="grid gap-2 sm:grid-cols-[140px_140px_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateSettings.mutate({ startTime: String(form.startTime), endTime: String(form.endTime) }); }}>
+              <Field label="Start time"><Input name="startTime" type="time" defaultValue={settings.data.startTime} required /></Field>
+              <Field label="End time"><Input name="endTime" type="time" defaultValue={settings.data.endTime} required /></Field>
+              <Button className="self-end" disabled={updateSettings.isPending}>{updateSettings.isPending ? "Saving..." : "Save times"}</Button>
+            </form>
+          </div>
+        </Card>
+      )}
       <Card>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-2xl font-black">Daily Attendance</h2>
-            <p className="text-sm text-slate-500">Start time: {import.meta.env.VITE_ATTENDANCE_START_TIME || "09:00"} · Manager can check in/out, HR/Admin can manually edit.</p>
+            <p className="text-sm text-slate-500">Start: {settings.data?.startTime || "09:00"} · End: {settings.data?.endTime || "17:00"} · Owner can edit times.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Input placeholder="Search employee" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -343,7 +368,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="text-slate-500">
-              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Actions</th>{canManualEdit && <th>HR edit</th>}</tr>
+              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Actions</th>{isOwner && <th>Owner time edit</th>}{canManualEdit && <th>HR edit</th>}</tr>
             </thead>
             <tbody>
               {rows.map((record) => (
@@ -363,6 +388,15 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                       <Button variant="secondary" disabled={!record.checkInTime || Boolean(record.checkOutTime) || checkOut.isPending} onClick={() => checkOut.mutate(record.employeeId)}>Check-out</Button>
                     </div>
                   </td>
+                  {isOwner && (
+                    <td>
+                      <form className="grid min-w-[220px] gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); editTimes.mutate({ employeeId: record.employeeId, date, checkInTime: toAttendanceIso(date, String(form.checkInTime)), checkOutTime: toAttendanceIso(date, String(form.checkOutTime)) }); }}>
+                        <Input name="checkInTime" type="time" aria-label={`${record.employeeName} check-in time`} defaultValue={timeInputValue(record.checkInTime)} />
+                        <Input name="checkOutTime" type="time" aria-label={`${record.employeeName} check-out time`} defaultValue={timeInputValue(record.checkOutTime)} />
+                        <Button variant="secondary" disabled={editTimes.isPending}>Save</Button>
+                      </form>
+                    </td>
+                  )}
                   {canManualEdit && (
                     <td>
                       <Select value={record.status} onChange={(event) => manual.mutate({ employeeId: record.employeeId, date, status: event.target.value })}>
@@ -423,6 +457,14 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
 
 function AttendanceBadge({ status }: { status: AttendanceRecord["status"] }) {
   return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800")}>{status}</Badge>;
+}
+
+function timeInputValue(value?: string) {
+  return value ? new Date(value).toTimeString().slice(0, 5) : "";
+}
+
+function toAttendanceIso(date: string, time: string) {
+  return time ? new Date(`${date}T${time}:00`).toISOString() : undefined;
 }
 
 function Inventory({ token }: { token: string }) {

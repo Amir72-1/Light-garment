@@ -55,6 +55,11 @@ export interface AttendanceStats {
   date: string;
 }
 
+export interface AttendanceSettings {
+  startTime: string;
+  endTime: string;
+}
+
 export interface EmployeeAttendanceProfile {
   employee: Employee;
   month: string;

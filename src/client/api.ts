@@ -1,5 +1,6 @@
 import type {
   AttendanceRecord,
+  AttendanceSettings,
   AttendanceStats,
   DashboardMetrics,
   Employee,
@@ -49,6 +50,9 @@ export const api = {
   checkIn: (token: string, id: string, date?: string) => request<AttendanceRecord>("/api/attendance/check-in", { method: "POST", body: JSON.stringify({ employeeId: id, date }) }, token),
   checkOut: (token: string, id: string, date?: string) => request<AttendanceRecord>("/api/attendance/check-out", { method: "POST", body: JSON.stringify({ employeeId: id, date }) }, token),
   manualAttendance: (token: string, body: Record<string, unknown>) => request<AttendanceRecord>("/api/attendance/manual", { method: "POST", body: JSON.stringify(body) }, token),
+  updateAttendanceTimes: (token: string, body: Record<string, unknown>) => request<AttendanceRecord>("/api/attendance/times", { method: "PATCH", body: JSON.stringify(body) }, token),
+  attendanceSettings: (token: string) => request<AttendanceSettings>("/api/attendance/settings", {}, token),
+  updateAttendanceSettings: (token: string, body: AttendanceSettings) => request<AttendanceSettings>("/api/attendance/settings", { method: "PATCH", body: JSON.stringify(body) }, token),
   products: (token: string) => request<Product[]>("/api/products", {}, token),
   createProduct: (token: string, body: Partial<Product>) => request<Product>("/api/products", { method: "POST", body: JSON.stringify(body) }, token),
   inventory: (token: string) => request<InventoryMovement[]>("/api/inventory", {}, token),

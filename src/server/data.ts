@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type {
   AttendanceRecord,
   AttendanceStats,
+  AttendanceSettings,
   DashboardMetrics,
   Employee,
   EmployeeAttendanceProfile,
@@ -39,7 +40,10 @@ type EmployeeInput = Omit<Employee, "id" | "employeeCode"> & { employeeCode?: st
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const todayKey = () => new Date().toISOString().slice(0, 10);
-const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
+const defaultAttendanceSettings: AttendanceSettings = {
+  startTime: process.env.ATTENDANCE_START_TIME || "09:00",
+  endTime: process.env.ATTENDANCE_END_TIME || "17:00"
+};
 
 function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
   const safePage = Math.max(1, page);
@@ -48,7 +52,7 @@ function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
   return { data: items.slice(start, start + safePageSize), page: safePage, pageSize: safePageSize, total: items.length };
 }
 
-function isLate(checkInTime: string) {
+function isLate(checkInTime: string, startTime: string) {
   const time = new Date(checkInTime).toTimeString().slice(0, 5);
   return time > startTime;
 }
@@ -74,6 +78,7 @@ export class DemoRepository {
   private rawMaterials: RawMaterial[] = [];
   private sales: Sale[] = [];
   private production: ProductionStage[] = [];
+  private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
   private company = {
     name: "Light Garment Manufacturing PLC",
@@ -311,6 +316,16 @@ export class DemoRepository {
     };
   }
 
+  async attendanceSettings() {
+    return this.attendanceConfig;
+  }
+
+  async updateAttendanceSettings(settings: AttendanceSettings) {
+    this.attendanceConfig = settings;
+    this.log(`Attendance schedule updated to ${settings.startTime}-${settings.endTime}`);
+    return this.attendanceConfig;
+  }
+
   async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.getEmployee(employeeId);
     if (!employee) return null;
@@ -329,7 +344,7 @@ export class DemoRepository {
     if (record?.checkInTime) {
       throw new Error("Employee already checked in today");
     }
-    const status = isLate(checkInTime) ? "Late" : "Present";
+    const status = isLate(checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present";
     if (!record) {
       record = this.recordForEmployee(employee, date, { checkInTime, status });
       this.attendance.unshift(record);
@@ -365,6 +380,22 @@ export class DemoRepository {
       record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
     }
     this.log(`${employee.fullName} attendance marked ${record.status}`);
+    return record;
+  }
+
+  async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.getEmployee(input.employeeId);
+    if (!employee) return null;
+    let record = this.attendance.find((item) => item.employeeId === input.employeeId && item.date === input.date);
+    if (!record) {
+      record = this.recordForEmployee(employee, input.date, { status: "Absent" });
+      this.attendance.unshift(record);
+    }
+    record.checkInTime = input.checkInTime;
+    record.checkOutTime = input.checkOutTime;
+    record.status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present") : "Absent";
+    record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    this.log(`${employee.fullName} attendance times updated`);
     return record;
   }
 
