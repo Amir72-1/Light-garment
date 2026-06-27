@@ -381,8 +381,8 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                   <td><AttendanceBadge status={record.status} /></td>
                   <td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td>
                   <td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td>
-                  <td>{record.totalHours ?? "-"}</td>
-                  <td>{record.overtimeHours ? `${record.overtimeHours}h` : "-"}</td>
+                  <td><HoursWithOvertime record={record} /></td>
+                  <td>{formatOvertime(record.overtimeHours)}</td>
                   <td>
                     <div className="flex flex-wrap gap-2">
                       <Button variant="secondary" disabled={Boolean(record.checkInTime) || checkIn.isPending} onClick={() => checkIn.mutate(record.employeeId)}>Check-in</Button>
@@ -444,7 +444,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                 <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th></tr></thead>
                 <tbody>
                   {monthReport.data.records.length ? monthReport.data.records.map((record) => (
-                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ? `${record.overtimeHours}h` : "-"}</td></tr>
+                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><HoursWithOvertime record={record} /></td><td>{formatOvertime(record.overtimeHours)}</td></tr>
                   )) : <tr><td className="py-4 text-slate-500" colSpan={6}>No attendance records for this month.</td></tr>}
                 </tbody>
               </table>
@@ -458,6 +458,19 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
 
 function AttendanceBadge({ status }: { status: AttendanceRecord["status"] }) {
   return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800")}>{status}</Badge>;
+}
+
+function HoursWithOvertime({ record }: { record: AttendanceRecord }) {
+  return (
+    <div>
+      <p className="font-semibold">{record.totalHours ?? "-"}</p>
+      {Boolean(record.overtimeHours) && <p className="text-xs font-semibold text-amber-700">Overtime: {formatOvertime(record.overtimeHours)}</p>}
+    </div>
+  );
+}
+
+function formatOvertime(value?: number) {
+  return value ? `${value}h` : "-";
 }
 
 function timeInputValue(value?: string) {
