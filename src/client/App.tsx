@@ -102,8 +102,8 @@ export default function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle theme={theme} onThemeChange={setTheme} />
-            <Button variant="ghost" onClick={() => { localStorage.removeItem("lgm-session"); setSession(null); }}>
-              <LogOut className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
+            <Button variant="ghost" className="h-9 w-9 px-0 sm:w-auto sm:px-4" aria-label="Logout" onClick={() => { localStorage.removeItem("lgm-session"); setSession(null); }}>
+              <LogOut className="h-4 w-4 sm:mr-2" /> <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </header>
