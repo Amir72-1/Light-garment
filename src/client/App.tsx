@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
@@ -9,9 +9,12 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Monitor,
+  Moon,
   PackagePlus,
   Settings,
   Shirt,
+  Sun,
   Users,
   X
 } from "lucide-react";
@@ -20,6 +23,7 @@ import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./compo
 import type { AttendanceRecord, AttendanceSettings, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
+type ThemeMode = "light" | "dark" | "system";
 
 const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
@@ -36,6 +40,12 @@ function currency(value: number) {
   return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
 }
 
+function applyTheme(theme: ThemeMode) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle("dark", theme === "dark" || (theme === "system" && prefersDark));
+  document.documentElement.style.colorScheme = theme === "dark" || (theme === "system" && prefersDark) ? "dark" : "light";
+}
+
 export default function App() {
   const [session, setSession] = useState<UserSession | null>(() => {
     const saved = localStorage.getItem("lgm-session");
@@ -43,6 +53,16 @@ export default function App() {
   });
   const [active, setActive] = useState<ModuleKey>("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("lgm-theme") as ThemeMode | null) || "system");
+
+  useEffect(() => {
+    applyTheme(theme);
+    localStorage.setItem("lgm-theme", theme);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const listener = () => theme === "system" && applyTheme(theme);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, [theme]);
 
   if (!session) {
     return <Login onLogin={(next) => { localStorage.setItem("lgm-session", JSON.stringify(next)); setSession(next); }} />;
@@ -51,18 +71,19 @@ export default function App() {
   const visibleNav = navItems.filter((item) => item.roles.includes(session.user.role));
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <aside className={cn("fixed inset-y-0 left-0 z-30 w-72 border-r border-slate-200 bg-white p-4 transition lg:translate-x-0", menuOpen ? "translate-x-0" : "-translate-x-full")}>
+    <div className="min-h-screen overflow-x-hidden bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+      {menuOpen && <button aria-label="Close navigation overlay" className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-sm lg:hidden" onClick={() => setMenuOpen(false)} />}
+      <aside className={cn("fixed inset-y-0 left-0 z-30 flex w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="mb-8 rounded-2xl bg-emerald-950 p-4 text-white">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Light Garment</p>
           <h1 className="mt-2 text-2xl font-black leading-tight">ERP Control Center</h1>
           <p className="mt-2 text-sm text-emerald-100">Signed in as {session.user.role}</p>
         </div>
-        <nav className="grid gap-2">
+        <nav className="grid gap-2 pb-6">
           {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.key} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold", active === item.key ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100")} onClick={() => { setActive(item.key); setMenuOpen(false); }}>
+              <button key={item.key} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold", active === item.key ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")} onClick={() => { setActive(item.key); setMenuOpen(false); }}>
                 <Icon className="h-4 w-4" />
                 {item.label}
               </button>
@@ -70,20 +91,23 @@ export default function App() {
           })}
         </nav>
       </aside>
-      <main className="lg:pl-72">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur lg:px-8">
+      <main className="min-w-0 lg:pl-72">
+        <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-3 py-3 backdrop-blur sm:px-4 lg:px-8 dark:border-slate-800 dark:bg-slate-950/90">
           <div className="flex items-center gap-3">
             <Button variant="secondary" className="lg:hidden" onClick={() => setMenuOpen((value) => !value)}><Menu className="h-4 w-4" /></Button>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production-ready garment ERP</p>
-              <h2 className="font-bold">Light Garment Manufacturing PLC</h2>
+              <h2 className="truncate font-bold">Light Garment Manufacturing PLC</h2>
             </div>
           </div>
-          <Button variant="ghost" onClick={() => { localStorage.removeItem("lgm-session"); setSession(null); }}>
-            <LogOut className="mr-2 h-4 w-4" /> Logout
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle theme={theme} onThemeChange={setTheme} />
+            <Button variant="ghost" onClick={() => { localStorage.removeItem("lgm-session"); setSession(null); }}>
+              <LogOut className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
+            </Button>
+          </div>
         </header>
-        <section className="p-4 lg:p-8">
+        <section className="min-w-0 p-3 sm:p-4 lg:p-8">
           {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
           {active === "employees" && <Employees token={session.token} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
@@ -91,7 +115,7 @@ export default function App() {
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
           {active === "reports" && <Reports token={session.token} />}
-          {active === "settings" && <SettingsPage token={session.token} />}
+          {active === "settings" && <SettingsPage token={session.token} theme={theme} onThemeChange={setTheme} />}
         </section>
       </main>
     </div>
@@ -133,6 +157,20 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
         </div>
       </Card>
     </main>
+  );
+}
+
+function ThemeToggle({ theme, onThemeChange }: { theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
+  const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+  return (
+    <div className="flex items-center gap-2">
+      <Icon className="hidden h-4 w-4 text-slate-500 sm:block" />
+      <Select aria-label="Theme mode" className="h-9 w-[112px] sm:w-[136px]" value={theme} onChange={(event) => onThemeChange(event.target.value as ThemeMode)}>
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </Select>
+    </div>
   );
 }
 
@@ -618,20 +656,39 @@ function Reports({ token }: { token: string }) {
     URL.revokeObjectURL(url);
   };
   return (
-    <Card>
-      <div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black">Reports</h2><p className="text-sm text-slate-500">Employee, attendance, inventory, sales, and profit reports.</p></div><Button onClick={exportJson}>Export JSON</Button></div>
-      <pre className="mt-6 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-emerald-100">{JSON.stringify(reports.data, null, 2)}</pre>
+    <Card className="print:shadow-none">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
+        <div><h2 className="text-xl font-black">Reports</h2><p className="text-sm text-slate-500 dark:text-slate-400">Employee, attendance, inventory, sales, and profit reports.</p></div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
+          <Button onClick={exportJson}>Export JSON</Button>
+        </div>
+      </div>
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 print:border-0 print:p-0 dark:border-slate-800 dark:bg-slate-950">
+        <div className="hidden print:block">
+          <h1 className="text-2xl font-black">Light Garment Manufacturing PLC Reports</h1>
+          <p className="mt-1 text-sm">Generated {new Date().toLocaleString()}</p>
+        </div>
+        <pre className="mt-4 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-emerald-100 print:whitespace-pre-wrap print:bg-white print:p-0 print:text-slate-950">{JSON.stringify(reports.data, null, 2)}</pre>
+      </section>
     </Card>
   );
 }
 
-function SettingsPage({ token }: { token: string }) {
+function SettingsPage({ token, theme, onThemeChange }: { token: string; theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.settings(token) });
   return (
-    <Card>
-      <h2 className="text-xl font-black">Company settings</h2>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">{Object.entries(settings.data || {}).map(([key, value]) => <div key={key} className="rounded-2xl bg-slate-50 p-4"><p className="text-sm capitalize text-slate-500">{key.replace(/([A-Z])/g, " $1")}</p><p className="font-bold">{String(value)}</p></div>)}</div>
-    </Card>
+    <div className="grid gap-6">
+      <Card>
+        <h2 className="text-xl font-black">Company settings</h2>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">{Object.entries(settings.data || {}).map(([key, value]) => <div key={key} className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950"><p className="text-sm capitalize text-slate-500 dark:text-slate-400">{key.replace(/([A-Z])/g, " $1")}</p><p className="font-bold">{String(value)}</p></div>)}</div>
+      </Card>
+      <Card>
+        <h2 className="text-xl font-black">Appearance</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use Light, Dark, or follow your system setting.</p>
+        <div className="mt-4 max-w-xs"><ThemeToggle theme={theme} onThemeChange={onThemeChange} /></div>
+      </Card>
+    </div>
   );
 }
 
