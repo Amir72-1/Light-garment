@@ -570,7 +570,6 @@ export class DemoRepository {
       id: existing.id,
       bonus: existing.bonus,
       allowance: existing.allowance,
-      deductions: existing.deductions,
       paymentStatus: existing.paymentStatus,
       paymentDate: existing.paymentDate,
       paymentMethod: existing.paymentMethod,

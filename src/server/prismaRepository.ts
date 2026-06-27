@@ -577,7 +577,8 @@ export class PrismaRepository {
 
   private async upsertPayrollForEmployee(employee: Employee, month: number, year: number) {
     const existing = await this.prisma.payroll.findUnique({ where: { employeeId_payrollMonth_payrollYear: { employeeId: employee.id, payrollMonth: month, payrollYear: year } }, include: { employee: true } });
-    const payroll = await this.calculatePayroll(employee, month, year, existing ? payrollFromRow(existing) : undefined);
+    const existingPayroll = existing ? payrollFromRow(existing) : undefined;
+    const payroll = await this.calculatePayroll(employee, month, year, existingPayroll ? { ...existingPayroll, deductions: undefined } : undefined);
     await this.savePayroll(payroll, existing ? "recalculated" : "generated", existing ? "Payroll recalculated" : "Payroll generated");
     return (await this.getPayroll(payroll.id))!;
   }

@@ -52,7 +52,7 @@ export function calculatePayrollRecord(params: {
   const deductions = roundMoney((params.extraDeductions ?? 0) + absenceDeduction + lateDeduction);
   const taxableGross = params.employee.salary + overtimePay + bonus + allowance;
   const tax = roundMoney(taxableGross * ((params.settings.taxPercentage || 0) / 100));
-  const payableSalary = roundMoney(taxableGross - deductions - tax);
+  const payableSalary = Math.max(0, roundMoney(taxableGross - deductions - tax));
   const now = new Date().toISOString();
 
   return {
