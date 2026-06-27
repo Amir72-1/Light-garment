@@ -586,7 +586,24 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
   const generate = useMutation({ mutationFn: () => api.generatePayroll(token, { month, year }), onSuccess: invalidatePayroll });
   const saveSettings = useMutation({ mutationFn: (body: PayrollSettings) => api.updatePayrollSettings(token, body), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["payroll-settings"] }) });
   const updatePayroll = useMutation({ mutationFn: ({ payroll, body }: { payroll: PayrollRecord; body: Record<string, unknown> }) => api.updatePayroll(token, payroll.id, body), onSuccess: invalidatePayroll });
-  const markPaid = useMutation({ mutationFn: (payroll: PayrollRecord) => api.markPayrollPaid(token, payroll.id, { paymentMethod: "Bank transfer" }), onSuccess: invalidatePayroll });
+  const markPaid = useMutation({
+    mutationFn: (payroll: PayrollRecord) => api.markPayrollPaid(token, payroll.id, { paymentMethod: "Bank transfer" }),
+    onSuccess: (paidPayroll) => {
+      queryClient.setQueryData<PayrollRecord[]>(["payrolls", month, year], (current = []) => current.map((payroll) => payroll.id === paidPayroll.id ? paidPayroll : payroll));
+      queryClient.setQueryData(["payroll-dashboard", month, year], (current: any) => {
+        if (!current) return current;
+        const history = current.history.map((payroll: PayrollRecord) => payroll.id === paidPayroll.id ? paidPayroll : payroll);
+        return {
+          ...current,
+          awaitingPayment: history.filter((payroll: PayrollRecord) => payroll.paymentStatus !== "Paid").length,
+          totalPaid: history.filter((payroll: PayrollRecord) => payroll.paymentStatus === "Paid").reduce((sum: number, payroll: PayrollRecord) => sum + payroll.payableSalary, 0),
+          totalUnpaid: history.filter((payroll: PayrollRecord) => payroll.paymentStatus !== "Paid").reduce((sum: number, payroll: PayrollRecord) => sum + payroll.payableSalary, 0),
+          history
+        };
+      });
+      invalidatePayroll();
+    }
+  });
 
   const exportCsv = () => {
     const rows = payrolls.data || [];
@@ -663,7 +680,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
                   <td>{currency(payroll.deductions)} deductions · {currency(payroll.tax)} tax</td>
                   <td className="font-black">{currency(payroll.payableSalary)}</td>
                   <td><Badge className={payroll.paymentStatus === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>{payroll.paymentStatus}</Badge></td>
-                  <td><div className="flex flex-wrap gap-2">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && payroll.paymentStatus !== "Paid" && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
+                  <td><div className="flex flex-wrap gap-2">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && !isPaidStatus(payroll.paymentStatus) && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
                 </tr>
               ))}
             </tbody>
@@ -700,6 +717,10 @@ function Payslip({ payroll, onClose }: { payroll: PayrollRecord; onClose: () => 
       </Card>
     </div>
   );
+}
+
+function isPaidStatus(status: string) {
+  return status.toLowerCase() === "paid";
 }
 
 function Inventory({ token }: { token: string }) {
