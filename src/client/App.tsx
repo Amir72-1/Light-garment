@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, AttendanceSettings, Employee, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Employee, Paginated, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
@@ -250,7 +250,17 @@ function Employees({ token }: { token: string }) {
   const attendance = useQuery({ queryKey: ["attendance"], queryFn: () => api.attendance(token) });
   const invalidate = () => { queryClient.invalidateQueries({ queryKey: ["employees"] }); queryClient.invalidateQueries({ queryKey: ["archived-employees"] }); queryClient.invalidateQueries({ queryKey: ["attendance"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); };
   const createEmployee = useMutation({ mutationFn: (form: FormData) => api.createEmployee(token, form), onSuccess: invalidate });
-  const deleteEmployee = useMutation({ mutationFn: (id: string) => api.deleteEmployee(token, id), onSuccess: invalidate });
+  const deleteEmployee = useMutation({
+    mutationFn: async (employee: Employee) => {
+      await api.deleteEmployee(token, employee.id);
+      return employee;
+    },
+    onSuccess: (employee) => {
+      queryClient.setQueryData<Employee[]>(["archived-employees"], (current = []) => [{ ...employee, status: "Inactive", archivedAt: new Date().toISOString() }, ...current.filter((item) => item.id !== employee.id)]);
+      queryClient.setQueryData<Paginated<Employee>>(["employees", search, department], (current) => current ? { ...current, data: current.data.filter((item) => item.id !== employee.id), total: Math.max(0, current.total - 1) } : current);
+      invalidate();
+    }
+  });
   const checkIn = useMutation({ mutationFn: (id: string) => api.checkIn(token, id), onSuccess: invalidate });
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
@@ -283,7 +293,7 @@ function Employees({ token }: { token: string }) {
                 <div className="flex flex-wrap gap-2 md:justify-end">
                   <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
                   <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
-                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
+                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
                 </div>
               </Card>
             ))}
