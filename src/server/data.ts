@@ -271,7 +271,7 @@ export class DemoRepository {
     const totalInventory = this.products.reduce((sum, product) => sum + product.quantity, 0);
     const revenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);
     return {
-      totalEmployees: this.employees.length,
+      totalEmployees: this.employees.filter((employee) => !employee.archivedAt).length,
       totalInventory,
       totalSales: this.sales.length,
       revenue,
@@ -284,7 +284,7 @@ export class DemoRepository {
   }
 
   async listEmployees(query: ListQuery) {
-    let rows = [...this.employees];
+    let rows = this.employees.filter((employee) => !employee.archivedAt);
     if (query.search) {
       const search = query.search.toLowerCase();
       rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
@@ -302,6 +302,12 @@ export class DemoRepository {
 
   async getEmployee(employeeId: string) {
     return this.employees.find((employee) => employee.id === employeeId) ?? null;
+  }
+
+  async listArchivedEmployees() {
+    return this.employees
+      .filter((employee) => employee.archivedAt)
+      .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)));
   }
 
   async createEmployee(input: EmployeeInput) {
@@ -323,9 +329,9 @@ export class DemoRepository {
   async deleteEmployee(employeeId: string) {
     const employee = await this.getEmployee(employeeId);
     if (!employee) return false;
-    this.employees = this.employees.filter((item) => item.id !== employeeId);
-    this.attendance = this.attendance.filter((item) => item.employeeId !== employeeId);
-    this.log(`Employee ${employee.employeeCode} deleted`);
+    employee.archivedAt = nowIso();
+    employee.status = "Inactive";
+    this.log(`Employee ${employee.employeeCode} archived`);
     return true;
   }
 

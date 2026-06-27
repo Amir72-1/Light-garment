@@ -141,6 +141,7 @@ model Employee {
   employmentType EmploymentType
   hireDate       DateTime
   status         EmployeeStatus  @default(ACTIVE)
+  archivedAt     DateTime?
   user           User?
   attendance     Attendance[]
   createdAt      DateTime        @default(now())

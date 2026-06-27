@@ -219,6 +219,10 @@ export async function createApp() {
     }));
   }));
 
+  app.get("/api/employees/archived", auth, allow("Owner", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listArchivedEmployees());
+  }));
+
   app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.parse(request.body);
     const employee = await repository.createEmployee({
@@ -396,7 +400,7 @@ export async function createApp() {
       return;
     }
     if (error instanceof Error) {
-      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") ? 409 : 500).json({ message: error.message });
+      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") || error.message.includes("Unique constraint") ? 409 : 500).json({ message: error.message });
       return;
     }
     response.status(500).json({ message: "Unexpected server error" });

@@ -54,6 +54,34 @@ describe("Light Garment ERP API", () => {
     expect(checkIn.body.employeeName).toBe("Test Tailor");
   });
 
+  it("archives employees instead of permanently deleting them", async () => {
+    const { app, token } = await login();
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Archive Candidate")
+      .field("faydaNumber", "FIN-ARCH-0001")
+      .field("phoneNumber", "+251900123123")
+      .field("address", "Archive office")
+      .field("gender", "Other")
+      .field("dateOfBirth", "1998-01-01")
+      .field("position", "Clerk")
+      .field("department", "Admin")
+      .field("salary", "10000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(201);
+
+    await request(app).delete(`/api/employees/${create.body.id}`).set("Authorization", `Bearer ${token}`).expect(204);
+
+    const active = await request(app).get("/api/employees?pageSize=100").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(active.body.data.some((item: { id: string }) => item.id === create.body.id)).toBe(false);
+
+    const archived = await request(app).get("/api/employees/archived").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(archived.body.some((item: { id: string; archivedAt?: string }) => item.id === create.body.id && item.archivedAt)).toBe(true);
+  });
+
   it("handles attendance check-in, duplicate prevention, checkout, manual status, stats, and monthly report", async () => {
     const { app, token } = await login();
     const employees = await request(app)

@@ -82,7 +82,8 @@ function employeeFromDb(row: any): Employee {
     salary: Number(row.salary),
     employmentType: employmentFromDb[row.employmentType],
     hireDate: isoDate(row.hireDate),
-    status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"]
+    status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"],
+    archivedAt: row.archivedAt?.toISOString()
   };
 }
 
@@ -210,7 +211,7 @@ export class PrismaRepository {
 
   async dashboard(): Promise<DashboardMetrics> {
     const [totalEmployees, products, rawMaterials, totalSales, sales] = await Promise.all([
-      this.prisma.employee.count(),
+      this.prisma.employee.count({ where: { archivedAt: null } }),
       this.prisma.product.findMany(),
       this.prisma.rawMaterial.findMany(),
       this.prisma.sale.count(),
@@ -231,7 +232,7 @@ export class PrismaRepository {
   }
 
   async listEmployees(query: ListQuery) {
-    const where: any = {};
+    const where: any = { archivedAt: null };
     if (query.search) {
       where.OR = [
         { fullName: { contains: query.search, mode: "insensitive" } },
@@ -255,6 +256,11 @@ export class PrismaRepository {
   async getEmployee(employeeId: string) {
     const row = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     return row ? employeeFromDb(row) : null;
+  }
+
+  async listArchivedEmployees() {
+    const rows = await this.prisma.employee.findMany({ where: { archivedAt: { not: null } }, orderBy: { archivedAt: "desc" } });
+    return rows.map(employeeFromDb);
   }
 
   async createEmployee(input: EmployeeInput) {
@@ -305,8 +311,8 @@ export class PrismaRepository {
   }
 
   async deleteEmployee(employeeId: string) {
-    await this.prisma.employee.delete({ where: { id: employeeId } }).catch(() => null);
-    return true;
+    const row = await this.prisma.employee.update({ where: { id: employeeId }, data: { archivedAt: new Date(), status: "INACTIVE" } }).catch(() => null);
+    return Boolean(row);
   }
 
   async listAttendance(date = todayKey()) {

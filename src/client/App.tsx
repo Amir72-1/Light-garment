@@ -75,9 +75,14 @@ export default function App() {
       {menuOpen && <button aria-label="Close navigation overlay" className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-sm lg:hidden" onClick={() => setMenuOpen(false)} />}
       <aside className={cn("fixed inset-y-0 left-0 z-30 flex w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="mb-8 rounded-2xl bg-emerald-950 p-4 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Light Garment</p>
-          <h1 className="mt-2 text-2xl font-black leading-tight">ERP Control Center</h1>
-          <p className="mt-2 text-sm text-emerald-100">Signed in as {session.user.role}</p>
+          <div className="flex items-center gap-3">
+            <LightGarmentLogo />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Light Garment</p>
+              <h1 className="text-xl font-black leading-tight">ERP Center</h1>
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-emerald-100">Signed in as {session.user.role}</p>
         </div>
         <nav className="grid gap-2 pb-6">
           {visibleNav.map((item) => {
@@ -178,6 +183,19 @@ function ThemeToggle({ theme, onThemeChange }: { theme: ThemeMode; onThemeChange
   );
 }
 
+function LightGarmentLogo() {
+  return (
+    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-300 shadow-lg shadow-amber-500/20" aria-hidden="true">
+      <svg viewBox="0 0 64 64" className="h-11 w-11">
+        <path d="M32 5c-11 0-20 8.9-20 19.8 0 6.8 3.4 12.3 8.5 16.1 2.5 1.9 3.7 4 3.7 6.6h15.6c0-2.7 1.2-4.8 3.7-6.6C48.6 37 52 31.5 52 24.8 52 13.9 43 5 32 5Z" fill="#fef3c7" stroke="#064e3b" strokeWidth="3" />
+        <path d="M24.5 49.5h15M26.5 55h11" stroke="#064e3b" strokeWidth="3" strokeLinecap="round" />
+        <path d="M23 22.5 29 18l3 3 3-3 6 4.5-3.2 5.1-2.8-1.7V38h-6V25.9l-2.8 1.7L23 22.5Z" fill="#10b981" stroke="#064e3b" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M28.7 18.2c1.9 1.5 4.7 1.5 6.6 0" stroke="#ecfdf5" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
 function Dashboard({ token, role }: { token: string; role: RoleName }) {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.dashboard(token) });
   const canViewAttendance = ["Owner", "Manager", "HR/Admin"].includes(role);
@@ -228,8 +246,9 @@ function Employees({ token }: { token: string }) {
   const params = new URLSearchParams({ search, pageSize: "50" });
   if (department) params.set("department", department);
   const employees = useQuery({ queryKey: ["employees", search, department], queryFn: () => api.employees(token, params) });
+  const archivedEmployees = useQuery({ queryKey: ["archived-employees"], queryFn: () => api.archivedEmployees(token) });
   const attendance = useQuery({ queryKey: ["attendance"], queryFn: () => api.attendance(token) });
-  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ["employees"] }); queryClient.invalidateQueries({ queryKey: ["attendance"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); };
+  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ["employees"] }); queryClient.invalidateQueries({ queryKey: ["archived-employees"] }); queryClient.invalidateQueries({ queryKey: ["attendance"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); };
   const createEmployee = useMutation({ mutationFn: (form: FormData) => api.createEmployee(token, form), onSuccess: invalidate });
   const deleteEmployee = useMutation({ mutationFn: (id: string) => api.deleteEmployee(token, id), onSuccess: invalidate });
   const checkIn = useMutation({ mutationFn: (id: string) => api.checkIn(token, id), onSuccess: invalidate });
@@ -264,7 +283,7 @@ function Employees({ token }: { token: string }) {
                 <div className="flex flex-wrap gap-2 md:justify-end">
                   <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
                   <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
-                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>Delete</Button>
+                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee.id)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
                 </div>
               </Card>
             ))}
@@ -280,7 +299,19 @@ function Employees({ token }: { token: string }) {
           </Card>
         </div>
         <div className="grid gap-6 self-start">
-          <EmployeeForm pending={createEmployee.isPending} onSubmit={(form) => createEmployee.mutate(form)} />
+          <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form) => createEmployee.mutate(form)} />
+          <Card>
+            <h3 className="text-lg font-bold">Archived employees</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Archived records stay available for HR history.</p>
+            <div className="mt-4 grid gap-2">
+              {archivedEmployees.data?.length ? archivedEmployees.data.map((employee) => (
+                <div key={employee.id} className="rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
+                  <p className="font-semibold">{employee.fullName}</p>
+                  <p className="text-slate-500 dark:text-slate-400">{employee.employeeCode} · Archived {employee.archivedAt ? new Date(employee.archivedAt).toLocaleString() : ""}</p>
+                </div>
+              )) : <p className="text-sm text-slate-500 dark:text-slate-400">No archived employees.</p>}
+            </div>
+          </Card>
         </div>
       </div>
       {selected && (
@@ -312,7 +343,7 @@ function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onCl
   );
 }
 
-function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => void; pending: boolean }) {
+function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData) => void; pending: boolean; error?: string }) {
   return (
     <Card>
       <h3 className="text-lg font-bold">Add employee</h3>
@@ -330,6 +361,7 @@ function EmployeeForm({ onSubmit, pending }: { onSubmit: (form: FormData) => voi
         <div className="grid gap-3 md:grid-cols-2"><Field label="Salary"><Input name="salary" type="number" required /></Field><Field label="Employment type"><Select name="employmentType" required><option>Full-time</option><option>Part-time</option><option>Contract</option></Select></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Hire date"><Input name="hireDate" placeholder="YYYY-MM-DD" required /></Field><Field label="Status"><Select name="status"><option>Active</option><option>Inactive</option></Select></Field></div>
         <Field label="Profile picture"><Input name="profilePicture" type="file" accept="image/*" /></Field>
+        {error && <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p>}
         <Button disabled={pending}>{pending ? "Saving..." : "Register employee"}</Button>
       </form>
     </Card>

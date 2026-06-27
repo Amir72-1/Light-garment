@@ -32,6 +32,7 @@ export interface Employee {
   employmentType: EmploymentType;
   hireDate: string;
   status: EmployeeStatus;
+  archivedAt?: string;
 }
 
 export interface AttendanceRecord {

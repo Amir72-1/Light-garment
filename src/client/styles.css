@@ -27,6 +27,31 @@ html.dark body {
   background: #020617;
 }
 
+html.dark .bg-white {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-slate-50,
+html.dark .bg-slate-100 {
+  background-color: #020617 !important;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200 {
+  border-color: #1e293b !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-600,
+html.dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-950,
+html.dark .text-slate-900 {
+  color: #f8fafc !important;
+}
+
 table {
   border-collapse: collapse;
 }
