@@ -126,6 +126,23 @@ describe("Light Garment ERP API", () => {
 
     expect(settings.body).toEqual({ startTime: "08:00", endTime: "16:30" });
 
+    const defaultDate = "2026-01-01";
+    await request(app)
+      .post("/api/attendance/check-in")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date: defaultDate, time: "2026-01-01T07:30:00.000Z" })
+      .expect(201);
+
+    const defaulted = await request(app)
+      .get(`/api/attendance/today?date=${defaultDate}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const defaultedRow = defaulted.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(defaultedRow.checkOutTime).toBe("2026-01-01T16:30:00.000Z");
+    expect(defaultedRow.totalHours).toBe(9);
+    expect(defaultedRow.overtimeHours).toBe(0);
+
     const edited = await request(app)
       .patch("/api/attendance/times")
       .set("Authorization", `Bearer ${token}`)
@@ -143,6 +160,15 @@ describe("Light Garment ERP API", () => {
     const row = today.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
     expect(row.checkInTime).toBe("2026-06-27T07:30:00.000Z");
     expect(row.checkOutTime).toBe("2026-06-27T16:30:00.000Z");
+
+    const overtime = await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date, checkInTime: "2026-06-27T07:30:00.000Z", checkOutTime: "2026-06-27T18:00:00.000Z" })
+      .expect(200);
+
+    expect(overtime.body.totalHours).toBe(10.5);
+    expect(overtime.body.overtimeHours).toBe(1.5);
   });
 
   it("blocks storekeeper and sales roles from attendance module APIs", async () => {

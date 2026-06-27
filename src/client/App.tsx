@@ -368,7 +368,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="text-slate-500">
-              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Actions</th>{isOwner && <th>Owner time edit</th>}{canManualEdit && <th>HR edit</th>}</tr>
+              <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th><th>Actions</th>{isOwner && <th>Owner time edit</th>}{canManualEdit && <th>HR edit</th>}</tr>
             </thead>
             <tbody>
               {rows.map((record) => (
@@ -382,6 +382,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                   <td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td>
                   <td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td>
                   <td>{record.totalHours ?? "-"}</td>
+                  <td>{record.overtimeHours ? `${record.overtimeHours}h` : "-"}</td>
                   <td>
                     <div className="flex flex-wrap gap-2">
                       <Button variant="secondary" disabled={Boolean(record.checkInTime) || checkIn.isPending} onClick={() => checkIn.mutate(record.employeeId)}>Check-in</Button>
@@ -440,11 +441,11 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
-                <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th></tr></thead>
+                <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th></tr></thead>
                 <tbody>
                   {monthReport.data.records.length ? monthReport.data.records.map((record) => (
-                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td>{record.totalHours ?? "-"}</td></tr>
-                  )) : <tr><td className="py-4 text-slate-500" colSpan={5}>No attendance records for this month.</td></tr>}
+                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ? `${record.overtimeHours}h` : "-"}</td></tr>
+                  )) : <tr><td className="py-4 text-slate-500" colSpan={6}>No attendance records for this month.</td></tr>}
                 </tbody>
               </table>
             </div>

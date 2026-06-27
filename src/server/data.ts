@@ -63,6 +63,37 @@ function totalHours(checkInTime?: string, checkOutTime?: string) {
   return Math.max(0, Math.round(hours * 100) / 100);
 }
 
+function dateTimeFor(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function shouldDefaultCheckout(date: string, endTime: string) {
+  return new Date() >= dateTimeFor(date, endTime);
+}
+
+function effectiveCheckOutTime(record: Pick<AttendanceRecord, "date" | "checkInTime" | "checkOutTime">, settings: AttendanceSettings) {
+  if (record.checkOutTime || !record.checkInTime || !shouldDefaultCheckout(record.date, settings.endTime)) {
+    return record.checkOutTime;
+  }
+  return dateTimeFor(record.date, settings.endTime).toISOString();
+}
+
+function overtimeHours(checkOutTime: string | undefined, date: string, settings: AttendanceSettings) {
+  if (!checkOutTime) return undefined;
+  const overtime = (new Date(checkOutTime).getTime() - dateTimeFor(date, settings.endTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(overtime * 100) / 100);
+}
+
+function applyAttendanceCalculations(record: AttendanceRecord, settings: AttendanceSettings): AttendanceRecord {
+  const checkOutTime = effectiveCheckOutTime(record, settings);
+  return {
+    ...record,
+    checkOutTime,
+    totalHours: totalHours(record.checkInTime, checkOutTime),
+    overtimeHours: overtimeHours(checkOutTime, record.date, settings)
+  };
+}
+
 function workingDaysInMonth(month: string) {
   const [year, monthIndex] = month.split("-").map(Number);
   const days = new Date(year, monthIndex, 0).getDate();
@@ -331,6 +362,7 @@ export class DemoRepository {
     if (!employee) return null;
     const records = this.attendance
       .filter((item) => item.employeeId === employeeId && item.date.startsWith(month))
+      .map((item) => applyAttendanceCalculations(item, this.attendanceConfig))
       .sort((left, right) => left.date.localeCompare(right.date));
     const totalWorkingDays = workingDaysInMonth(month).length;
     const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
@@ -361,6 +393,7 @@ export class DemoRepository {
     if (!record) return null;
     record.checkOutTime = checkOutTime;
     record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     this.log(`${record.employeeName} checked out`);
     return record;
   }
@@ -378,6 +411,7 @@ export class DemoRepository {
       record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
       record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
       record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+      record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     }
     this.log(`${employee.fullName} attendance marked ${record.status}`);
     return record;
@@ -395,6 +429,7 @@ export class DemoRepository {
     record.checkOutTime = input.checkOutTime;
     record.status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present") : "Absent";
     record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     this.log(`${employee.fullName} attendance times updated`);
     return record;
   }
@@ -402,7 +437,7 @@ export class DemoRepository {
   private attendanceForDate(date: string) {
     return this.employees.map((employee) => {
       const existing = this.attendance.find((item) => item.employeeId === employee.id && item.date === date);
-      return existing ?? this.recordForEmployee(employee, date, { status: "Absent" });
+      return existing ? applyAttendanceCalculations(existing, this.attendanceConfig) : this.recordForEmployee(employee, date, { status: "Absent" });
     }).sort((left, right) => left.employeeName.localeCompare(right.employeeName));
   }
 
@@ -418,7 +453,8 @@ export class DemoRepository {
       checkInTime: input.checkInTime,
       checkOutTime: input.checkOutTime,
       status: input.status || "Absent",
-      totalHours: totalHours(input.checkInTime, input.checkOutTime)
+      totalHours: totalHours(input.checkInTime, input.checkOutTime),
+      overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
     };
   }
 

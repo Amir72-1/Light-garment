@@ -46,6 +46,7 @@ export interface AttendanceRecord {
   checkOutTime?: string;
   status: "Present" | "Absent" | "Late";
   totalHours?: number;
+  overtimeHours?: number;
 }
 
 export interface AttendanceStats {

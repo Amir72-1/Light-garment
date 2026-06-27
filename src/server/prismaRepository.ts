@@ -101,13 +101,35 @@ function totalHours(checkInTime?: string | null, checkOutTime?: string | null) {
   return Math.max(0, Math.round(hours * 100) / 100);
 }
 
+function dateTimeFor(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function shouldDefaultCheckout(date: string, endTime: string) {
+  return new Date() >= dateTimeFor(date, endTime);
+}
+
+function effectiveCheckOutTime(row: { date: string; checkInTime?: string | null; checkOutTime?: string | null }, settings: AttendanceSettings) {
+  if (row.checkOutTime || !row.checkInTime || !shouldDefaultCheckout(row.date, settings.endTime)) {
+    return row.checkOutTime ?? undefined;
+  }
+  return dateTimeFor(row.date, settings.endTime).toISOString();
+}
+
+function overtimeHours(checkOutTime: string | undefined, date: string, settings: AttendanceSettings) {
+  if (!checkOutTime) return undefined;
+  const overtime = (new Date(checkOutTime).getTime() - dateTimeFor(date, settings.endTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(overtime * 100) / 100);
+}
+
 function workingDaysInMonth(month: string) {
   const [year, monthIndex] = month.split("-").map(Number);
   const days = new Date(year, monthIndex, 0).getDate();
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
 }
 
-function attendanceFromRow(row: any): AttendanceRecord {
+function attendanceFromRow(row: any, settings: AttendanceSettings = defaultAttendanceSettings): AttendanceRecord {
+  const checkOutTime = effectiveCheckOutTime(row, settings);
   return {
     id: row.id,
     employeeId: row.employeeId,
@@ -117,9 +139,10 @@ function attendanceFromRow(row: any): AttendanceRecord {
     position: row.employee.position,
     date: row.date,
     checkInTime: row.checkInTime ?? undefined,
-    checkOutTime: row.checkOutTime ?? undefined,
+    checkOutTime,
     status: attendanceFromDb[row.status],
-    totalHours: row.totalHours ?? undefined
+    totalHours: totalHours(row.checkInTime, checkOutTime) ?? row.totalHours ?? undefined,
+    overtimeHours: overtimeHours(checkOutTime, row.date, settings) ?? row.overtimeHours ?? undefined
   };
 }
 
@@ -297,7 +320,7 @@ export class PrismaRepository {
     ]);
     return employees.map((employee) => {
       const existing = rows.find((row) => row.employeeId === employee.id);
-      return existing ? attendanceFromRow(existing) : absentRecord(employee, date);
+      return existing ? attendanceFromRow(existing, this.attendanceConfig) : absentRecord(employee, date);
     });
   }
 
@@ -328,7 +351,7 @@ export class PrismaRepository {
       include: { employee: true },
       orderBy: { date: "asc" }
     });
-    const records = rows.map(attendanceFromRow);
+    const records = rows.map((row) => attendanceFromRow(row, this.attendanceConfig));
     const totalWorkingDays = workingDaysInMonth(month).length;
     const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
     return { employee: employeeFromDb(employee), month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
@@ -345,17 +368,17 @@ export class PrismaRepository {
       create: { employeeId, date, checkInTime, status: (isLate(checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") as any },
       include: { employee: true }
     });
-    return attendanceFromRow(row);
+    return attendanceFromRow(row, this.attendanceConfig);
   }
 
   async checkOut(employeeId: string, date = todayKey(), checkOutTime = new Date().toISOString()) {
     const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
     const row = await this.prisma.attendance.update({
       where: { employeeId_date: { employeeId, date } },
-      data: { checkOutTime, totalHours: totalHours(existing?.checkInTime, checkOutTime) },
+      data: { checkOutTime, totalHours: totalHours(existing?.checkInTime, checkOutTime), overtimeHours: overtimeHours(checkOutTime, date, this.attendanceConfig) },
       include: { employee: true }
     }).catch(() => null);
-    return row ? attendanceFromRow(row) : null;
+    return row ? attendanceFromRow(row, this.attendanceConfig) : null;
   }
 
   async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
@@ -368,7 +391,8 @@ export class PrismaRepository {
         status: attendanceToDb[input.status] as any,
         checkInTime: input.status === "Absent" ? null : input.checkInTime,
         checkOutTime: input.status === "Absent" ? null : input.checkOutTime,
-        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime)
+        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: input.status === "Absent" ? null : overtimeHours(input.checkOutTime, date, this.attendanceConfig)
       },
       create: {
         employeeId: input.employeeId,
@@ -376,11 +400,12 @@ export class PrismaRepository {
         status: attendanceToDb[input.status] as any,
         checkInTime: input.checkInTime,
         checkOutTime: input.checkOutTime,
-        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+        totalHours: totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
       },
       include: { employee: true }
     });
-    return attendanceFromRow(row);
+    return attendanceFromRow(row, this.attendanceConfig);
   }
 
   async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
@@ -393,7 +418,8 @@ export class PrismaRepository {
         checkInTime: input.checkInTime ?? null,
         checkOutTime: input.checkOutTime ?? null,
         status: status as any,
-        totalHours: totalHours(input.checkInTime, input.checkOutTime) ?? null
+        totalHours: totalHours(input.checkInTime, input.checkOutTime) ?? null,
+        overtimeHours: overtimeHours(input.checkOutTime, input.date, this.attendanceConfig) ?? null
       },
       create: {
         employeeId: input.employeeId,
@@ -401,11 +427,12 @@ export class PrismaRepository {
         checkInTime: input.checkInTime,
         checkOutTime: input.checkOutTime,
         status: status as any,
-        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+        totalHours: totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: overtimeHours(input.checkOutTime, input.date, this.attendanceConfig)
       },
       include: { employee: true }
     });
-    return attendanceFromRow(row);
+    return attendanceFromRow(row, this.attendanceConfig);
   }
 
   async listProducts() {

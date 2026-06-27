@@ -156,6 +156,7 @@ model Attendance {
   checkOutTime String?
   status      AttendanceStatus @default(ABSENT)
   totalHours  Float?
+  overtimeHours Float?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
