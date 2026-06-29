@@ -581,7 +581,7 @@ function HorizontalScrollControls({ targetId }: { targetId: string }) {
   const scroll = (direction: "left" | "right") => {
     const target = document.getElementById(targetId);
     if (!target) return;
-    target.scrollTo({ left: direction === "left" ? 0 : target.scrollWidth, behavior: "smooth" });
+    target.scrollLeft = direction === "left" ? 0 : target.scrollWidth - target.clientWidth;
   };
   return (
     <div className="action-row mt-3 print:hidden">
