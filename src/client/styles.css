@@ -56,6 +56,11 @@ table {
   border-collapse: collapse;
 }
 
+td,
+th {
+  vertical-align: middle;
+}
+
 .overflow-x-auto {
   display: block;
   width: 100%;

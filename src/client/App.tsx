@@ -713,7 +713,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
                   <td>{currency(payroll.deductions)} deductions · {currency(payroll.tax)} tax</td>
                   <td className="font-black">{currency(payroll.payableSalary)}</td>
                   <td><Badge className={payroll.paymentStatus === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>{payroll.paymentStatus}</Badge></td>
-                  <td><div className="action-row">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && !isPaidStatus(payroll.paymentStatus) && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
+                  <td className="min-w-[380px]"><div className="action-row">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && !isPaidStatus(payroll.paymentStatus) && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
                 </tr>
               ))}
             </tbody>
