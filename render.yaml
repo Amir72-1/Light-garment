@@ -19,3 +19,9 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: INITIAL_OWNER_NAME
+        sync: false
+      - key: INITIAL_OWNER_EMAIL
+        sync: false
+      - key: INITIAL_OWNER_PASSWORD
+        sync: false

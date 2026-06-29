@@ -22,6 +22,9 @@ DEMO_MODE=false
 JWT_SECRET=<long-random-secret>
 DATABASE_URL=<free-postgres-connection-url>
 CORS_ORIGIN=<your-public-app-url>
+INITIAL_OWNER_NAME=<your-owner-name>
+INITIAL_OWNER_EMAIL=<your-real-owner-email>
+INITIAL_OWNER_PASSWORD=<secure-initial-password>
 ```
 
 Do not deploy real usage with `DEMO_MODE=true`; demo mode is in-memory and resets on restart.
@@ -56,10 +59,7 @@ The repository also includes `.npmrc` with `include=dev` so Render does not omit
 
 ## First login
 
-After deployment, use:
-
-- `owner@lightgarment.example`
-- `Password123!`
+After deployment, log in with `INITIAL_OWNER_EMAIL` and `INITIAL_OWNER_PASSWORD`.
 
 Immediately change/add users in Settings.
 

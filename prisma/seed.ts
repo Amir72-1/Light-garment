@@ -19,12 +19,15 @@ async function main() {
   }
 
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "OWNER" } });
-  const managerRole = await prisma.role.findUniqueOrThrow({ where: { name: "MANAGER" } });
-  const storekeeperRole = await prisma.role.findUniqueOrThrow({ where: { name: "STOREKEEPER" } });
-  const hrRole = await prisma.role.findUniqueOrThrow({ where: { name: "HR_ADMIN" } });
-  const salespersonRole = await prisma.role.findUniqueOrThrow({ where: { name: "SALESPERSON" } });
+  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL;
+  const initialOwnerPassword = process.env.INITIAL_OWNER_PASSWORD;
+  const initialOwnerName = process.env.INITIAL_OWNER_NAME || "Light Garment Owner";
 
-  const passwordHash = await bcrypt.hash("Password123!", 12);
+  if (!initialOwnerEmail || !initialOwnerPassword) {
+    throw new Error("INITIAL_OWNER_EMAIL and INITIAL_OWNER_PASSWORD are required for production seeding.");
+  }
+
+  const passwordHash = await bcrypt.hash(initialOwnerPassword, 12);
 
   const managerEmployee = await prisma.employee.upsert({
     where: { employeeCode: "LGM-EMP-0001" },
@@ -48,58 +51,14 @@ async function main() {
   });
 
   await prisma.user.upsert({
-    where: { email: "owner@lightgarment.example" },
-    update: {},
+    where: { email: initialOwnerEmail },
+    update: { name: initialOwnerName, passwordHash, roleId: ownerRole.id, isActive: true },
     create: {
-      name: "Light Garment Owner",
-      email: "owner@lightgarment.example",
+      name: initialOwnerName,
+      email: initialOwnerEmail,
       passwordHash,
       roleId: ownerRole.id,
       employeeId: managerEmployee.id
-    }
-  });
-
-  await prisma.user.upsert({
-    where: { email: "manager@lightgarment.example" },
-    update: {},
-    create: {
-      name: "Production Manager",
-      email: "manager@lightgarment.example",
-      passwordHash,
-      roleId: managerRole.id
-    }
-  });
-
-  await prisma.user.upsert({
-    where: { email: "store@lightgarment.example" },
-    update: {},
-    create: {
-      name: "Store Keeper",
-      email: "store@lightgarment.example",
-      passwordHash,
-      roleId: storekeeperRole.id
-    }
-  });
-
-  await prisma.user.upsert({
-    where: { email: "hr@lightgarment.example" },
-    update: {},
-    create: {
-      name: "HR Administrator",
-      email: "hr@lightgarment.example",
-      passwordHash,
-      roleId: hrRole.id
-    }
-  });
-
-  await prisma.user.upsert({
-    where: { email: "sales@lightgarment.example" },
-    update: {},
-    create: {
-      name: "POS Cashier",
-      email: "sales@lightgarment.example",
-      passwordHash,
-      roleId: salespersonRole.id
     }
   });
 
