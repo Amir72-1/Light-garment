@@ -302,7 +302,7 @@ function Employees({ token }: { token: string }) {
                     <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
                   </div>
                 </button>
-                <div className="flex flex-wrap gap-2 md:justify-end">
+                <div className="action-row md:justify-end">
                   <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
                   <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
                   <Button variant="danger" onClick={() => deleteEmployee.mutate(employee)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
@@ -480,7 +480,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                   <td><HoursWithOvertime record={record} /></td>
                   <td>{formatOvertime(record.overtimeHours)}</td>
                   <td>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="action-row">
                       <Button variant="secondary" disabled={Boolean(record.checkInTime) || checkIn.isPending} onClick={() => checkIn.mutate(record.employeeId)}>Check-in</Button>
                       <Button variant="secondary" disabled={!record.checkInTime || Boolean(record.checkOutTime) || checkOut.isPending} onClick={() => checkOut.mutate(record.employeeId)}>Check-out</Button>
                     </div>
@@ -690,7 +690,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
                   <td>{currency(payroll.deductions)} deductions · {currency(payroll.tax)} tax</td>
                   <td className="font-black">{currency(payroll.payableSalary)}</td>
                   <td><Badge className={payroll.paymentStatus === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>{payroll.paymentStatus}</Badge></td>
-                  <td><div className="flex flex-wrap gap-2">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && !isPaidStatus(payroll.paymentStatus) && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
+                  <td><div className="action-row">{canManage && <Button variant="secondary" onClick={() => updatePayroll.mutate({ payroll, body: { bonus: payroll.bonus, allowance: payroll.allowance, deductions: payroll.deductions, notes: payroll.notes } })}>Recalculate</Button>}{canManage && !isPaidStatus(payroll.paymentStatus) && <Button onClick={() => markPaid.mutate(payroll)}>Mark paid</Button>}<Button variant="secondary" onClick={() => setSelectedPayslip(payroll)}>Payslip</Button></div></td>
                 </tr>
               ))}
             </tbody>
@@ -723,7 +723,7 @@ function Payslip({ payroll, onClose }: { payroll: PayrollRecord; onClose: () => 
             {Object.entries({ "Employee ID": payroll.employee.employeeCode, Name: payroll.employee.fullName, Department: payroll.employee.department, Position: payroll.employee.position, "Basic salary": currency(payroll.basicSalary), "Present days": payroll.presentDays, "Absent days": payroll.absentDays, "Late days": payroll.lateDays, "Overtime hours": payroll.overtimeHours, "Overtime pay": currency(payroll.overtimePay), Bonus: currency(payroll.bonus), Allowance: currency(payroll.allowance), Deductions: currency(payroll.deductions), Tax: currency(payroll.tax), "Net salary": currency(payroll.payableSalary), Status: payroll.paymentStatus }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-b py-2"><span className="text-slate-500">{key}</span><strong>{value}</strong></div>)}
           </div>
         </div>
-        <div className="mt-5 flex justify-end gap-2 print:hidden"><Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button><Button onClick={onClose}>Close</Button></div>
+        <div className="action-row mt-5 justify-end print:hidden"><Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button><Button onClick={onClose}>Close</Button></div>
       </Card>
     </div>
   );
@@ -793,7 +793,7 @@ function Inventory({ token }: { token: string }) {
       <Card className="print:shadow-none">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
           <div><h3 className="text-lg font-bold">Inventory usage records</h3><p className="text-sm text-slate-500">Permanent product, raw material, and POS movement history.</p></div>
-          <div className="flex flex-wrap gap-2">
+          <div className="action-row">
             <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
             <Button onClick={() => exportCsv("inventory-history.csv", [["Type", "Item", "Quantity", "Unit", "Reference", "Date"], ...(inventory.data || []).map((m) => [m.type, m.productName, m.quantity, "pcs", m.reference, m.createdAt]), ...(rawHistory.data || []).map((m) => [m.type, m.rawMaterialName, m.quantity, m.unit, m.reference, m.createdAt]), ...(sales.data || []).flatMap((sale) => sale.items.map((item) => ["POS Sale", item.productName, item.quantity, "pcs", sale.invoiceNumber, sale.createdAt]))])}>Export Excel CSV</Button>
           </div>
@@ -894,7 +894,7 @@ function Production({ token }: { token: string }) {
             <Select name="status" defaultValue={stage.status}><option>Pending</option><option>In progress</option><option>Completed</option><option>Blocked</option></Select>
             <Input name="assignedTo" defaultValue={stage.assignedTo || ""} placeholder="Assigned to" />
             <Textarea name="notes" defaultValue={stage.notes || ""} rows={2} placeholder="Production notes" />
-            <div className="flex flex-wrap gap-2">
+            <div className="action-row">
               <Button variant="secondary" type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "In progress", assignedTo: stage.assignedTo, startedAt: new Date().toISOString(), notes: stage.notes } })}>Start</Button>
               <Button variant="danger" type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "Blocked", assignedTo: stage.assignedTo, notes: stage.notes } })}>Block</Button>
               <Button type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "Completed", assignedTo: stage.assignedTo, completedAt: new Date().toISOString(), notes: stage.notes } })}>Complete</Button>
@@ -924,7 +924,7 @@ function Reports({ token }: { token: string }) {
     <Card className="print:shadow-none">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
         <div><h2 className="text-xl font-black">Reports</h2><p className="text-sm text-slate-500 dark:text-slate-400">Employee, attendance, inventory, sales, and profit reports.</p></div>
-        <div className="flex flex-wrap gap-2">
+        <div className="action-row">
           <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
           <Button onClick={exportReport}>Export Excel CSV</Button>
         </div>
@@ -987,7 +987,7 @@ function SettingsPage({ token, role, theme, onThemeChange }: { token: string; ro
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="text-slate-500"><tr><th className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th>Actions</th></tr></thead>
-              <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
+              <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="action-row" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="action-row"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
             </table>
           </div>
         </Card>

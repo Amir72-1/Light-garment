@@ -17,11 +17,11 @@ export function Button({
   return (
     <Comp
       className={cn(
-        "inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:pointer-events-none disabled:opacity-50",
-        variant === "primary" && "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700",
-        variant === "secondary" && "border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800",
+        "inline-flex h-10 shrink-0 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold shadow-sm transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:pointer-events-none disabled:opacity-50",
+        variant === "primary" && "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800",
+        variant === "secondary" && "border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:active:bg-slate-700",
         variant === "ghost" && "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
-        variant === "danger" && "bg-rose-600 text-white hover:bg-rose-700",
+        variant === "danger" && "bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800",
         className
       )}
       {...props}

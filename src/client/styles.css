@@ -13,7 +13,7 @@ body {
   min-width: 320px;
   margin: 0;
   background: #f1f5f9;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 button,
@@ -54,6 +54,76 @@ html.dark .text-slate-900 {
 
 table {
   border-collapse: collapse;
+}
+
+.overflow-x-auto {
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  padding-bottom: 0.5rem;
+  scrollbar-color: #10b981 #e2e8f0;
+  scrollbar-width: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.overflow-x-auto::-webkit-scrollbar,
+.action-row::-webkit-scrollbar {
+  display: block;
+  height: 12px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track,
+.action-row::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.action-row::-webkit-scrollbar-thumb {
+  border: 3px solid #e2e8f0;
+  border-radius: 999px;
+  background: #10b981;
+}
+
+html.dark .overflow-x-auto,
+html.dark .action-row {
+  scrollbar-color: #34d399 #0f172a;
+}
+
+html.dark .overflow-x-auto::-webkit-scrollbar-track,
+html.dark .action-row::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+html.dark .overflow-x-auto::-webkit-scrollbar-thumb,
+html.dark .action-row::-webkit-scrollbar-thumb {
+  border-color: #0f172a;
+  background: #34d399;
+}
+
+.action-row {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+  scrollbar-color: #10b981 #e2e8f0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.action-row > * {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 768px) {
+  .action-row {
+    width: auto;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
 }
 
 @media print {
