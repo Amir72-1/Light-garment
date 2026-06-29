@@ -580,6 +580,11 @@ function toAttendanceIso(date: string, time: string) {
 function HorizontalScrollControls({ targetId }: { targetId: string }) {
   const scroll = (direction: "left" | "right") => {
     const target = document.getElementById(targetId);
+    const marker = document.getElementById(`${targetId}-${direction}`);
+    if (marker) {
+      marker.scrollIntoView({ behavior: "smooth", block: "nearest", inline: direction === "left" ? "start" : "end" });
+      return;
+    }
     if (!target) return;
     target.scrollLeft = direction === "left" ? 0 : target.scrollWidth - target.clientWidth;
   };
@@ -694,7 +699,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
         <HorizontalScrollControls targetId="payroll-history-scroll" />
         <div id="payroll-history-scroll" className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[2400px] text-left text-sm">
-            <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Attendance</th><th>Overtime</th><th>Adjustments</th><th>Deductions/Tax</th><th>Net salary</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead className="text-slate-500"><tr><th id="payroll-history-scroll-left" className="py-2">Employee</th><th>Attendance</th><th>Overtime</th><th>Adjustments</th><th>Deductions/Tax</th><th>Net salary</th><th>Status</th><th id="payroll-history-scroll-right">Actions</th></tr></thead>
             <tbody>
               {payrolls.data?.map((payroll) => (
                 <tr key={payroll.id} className="border-t">
@@ -826,7 +831,7 @@ function Inventory({ token }: { token: string }) {
         <HorizontalScrollControls targetId="inventory-history-scroll" />
         <div id="inventory-history-scroll" className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[2400px] text-left text-sm">
-            <thead className="text-slate-500"><tr><th className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th>Date</th></tr></thead>
+            <thead className="text-slate-500"><tr><th id="inventory-history-scroll-left" className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th id="inventory-history-scroll-right">Date</th></tr></thead>
             <tbody>
               {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
               {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
@@ -1003,7 +1008,7 @@ function SettingsPage({ token, role, theme, onThemeChange }: { token: string; ro
           <HorizontalScrollControls targetId="settings-users-scroll" />
           <div id="settings-users-scroll" className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[2400px] text-left text-sm">
-              <thead className="text-slate-500"><tr><th className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th>Actions</th></tr></thead>
+              <thead className="text-slate-500"><tr><th id="settings-users-scroll-left" className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th id="settings-users-scroll-right">Actions</th></tr></thead>
               <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="action-row" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="action-row"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
             </table>
           </div>
