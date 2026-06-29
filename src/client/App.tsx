@@ -581,11 +581,11 @@ function HorizontalScrollControls({ targetId }: { targetId: string }) {
   const scroll = (direction: "left" | "right") => {
     const target = document.getElementById(targetId);
     const marker = document.getElementById(`${targetId}-${direction}`);
+    if (!target) return;
     if (marker) {
-      marker.scrollIntoView({ behavior: "smooth", block: "nearest", inline: direction === "left" ? "start" : "end" });
+      target.scrollLeft = direction === "left" ? 0 : marker.offsetLeft;
       return;
     }
-    if (!target) return;
     target.scrollLeft = direction === "left" ? 0 : target.scrollWidth - target.clientWidth;
   };
   return (
