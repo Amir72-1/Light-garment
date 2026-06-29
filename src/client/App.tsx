@@ -313,7 +313,7 @@ function Employees({ token }: { token: string }) {
           <Card>
             <h3 className="text-lg font-bold">Daily attendance log</h3>
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
                 <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
               </table>
@@ -462,7 +462,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
           </div>
         </div>
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[1280px] text-left text-sm">
             <thead className="text-slate-500">
               <tr><th className="py-2">Employee</th><th>Department</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th><th>Actions</th>{isOwner && <th>Owner time edit</th>}{canManualEdit && <th>HR edit</th>}</tr>
             </thead>
@@ -536,7 +536,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-sm">
+              <table className="w-full min-w-[1280px] text-left text-sm">
                 <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th></tr></thead>
                 <tbody>
                   {monthReport.data.records.length ? monthReport.data.records.map((record) => (
@@ -678,7 +678,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
           <Button variant="secondary" onClick={() => window.print()}>Print selected payslip / PDF</Button>
         </div>
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1360px] text-left text-sm">
             <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Attendance</th><th>Overtime</th><th>Adjustments</th><th>Deductions/Tax</th><th>Net salary</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {payrolls.data?.map((payroll) => (
@@ -809,7 +809,7 @@ function Inventory({ token }: { token: string }) {
           </div>
         </form>
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[1280px] text-left text-sm">
             <thead className="text-slate-500"><tr><th className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th>Date</th></tr></thead>
             <tbody>
               {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
@@ -941,7 +941,7 @@ function Reports({ token }: { token: string }) {
           <ReportTable title="Profit report" rows={[["Revenue", currency(data?.profitReport?.revenue || 0)], ["COGS", currency(data?.profitReport?.cogs || 0)], ["Gross profit", currency(data?.profitReport?.grossProfit || 0)]]} />
           <div className="overflow-x-auto">
             <h3 className="font-bold">Attendance report</h3>
-            <table className="mt-2 w-full min-w-[640px] text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">Employee</th><th>Date</th><th>Status</th><th>Hours</th><th>Overtime</th></tr></thead><tbody>{data?.attendanceReport?.records?.map((record: AttendanceRecord) => <tr key={record.id} className="border-t"><td className="py-2">{record.employeeName}</td><td>{record.date}</td><td>{record.status}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ?? "-"}</td></tr>)}</tbody></table>
+            <table className="mt-2 w-full min-w-[980px] text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">Employee</th><th>Date</th><th>Status</th><th>Hours</th><th>Overtime</th></tr></thead><tbody>{data?.attendanceReport?.records?.map((record: AttendanceRecord) => <tr key={record.id} className="border-t"><td className="py-2">{record.employeeName}</td><td>{record.date}</td><td>{record.status}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ?? "-"}</td></tr>)}</tbody></table>
           </div>
         </div>
       </section>
@@ -985,7 +985,7 @@ function SettingsPage({ token, role, theme, onThemeChange }: { token: string; ro
           </form>
           {createUser.error && <p className="mt-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{createUser.error.message}</p>}
           <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[1280px] text-left text-sm">
               <thead className="text-slate-500"><tr><th className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th>Actions</th></tr></thead>
               <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="action-row" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="action-row"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
             </table>
