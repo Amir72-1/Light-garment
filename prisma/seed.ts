@@ -19,6 +19,8 @@ async function main() {
   }
 
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "OWNER" } });
+  const managerRole = await prisma.role.findUniqueOrThrow({ where: { name: "MANAGER" } });
+  const storekeeperRole = await prisma.role.findUniqueOrThrow({ where: { name: "STOREKEEPER" } });
   const hrRole = await prisma.role.findUniqueOrThrow({ where: { name: "HR_ADMIN" } });
   const salespersonRole = await prisma.role.findUniqueOrThrow({ where: { name: "SALESPERSON" } });
 
@@ -54,6 +56,28 @@ async function main() {
       passwordHash,
       roleId: ownerRole.id,
       employeeId: managerEmployee.id
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: "manager@lightgarment.example" },
+    update: {},
+    create: {
+      name: "Production Manager",
+      email: "manager@lightgarment.example",
+      passwordHash,
+      roleId: managerRole.id
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: "store@lightgarment.example" },
+    update: {},
+    create: {
+      name: "Store Keeper",
+      email: "store@lightgarment.example",
+      passwordHash,
+      roleId: storekeeperRole.id
     }
   });
 
@@ -131,23 +155,31 @@ async function main() {
     }
   });
 
-  await prisma.rawMaterial.createMany({
-    data: [
-      { name: "Cotton Fabric Roll", category: "FABRIC", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95, supplierId: supplier.id },
-      { name: "White Thread", category: "THREAD", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18, supplierId: supplier.id },
-      { name: "Pearl Buttons", category: "BUTTONS", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5, supplierId: supplier.id }
-    ],
-    skipDuplicates: true
-  });
+  const rawMaterials = [
+    { id: "seed-raw-cotton-fabric", name: "Cotton Fabric Roll", category: "FABRIC", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95, supplierId: supplier.id },
+    { id: "seed-raw-white-thread", name: "White Thread", category: "THREAD", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18, supplierId: supplier.id },
+    { id: "seed-raw-pearl-buttons", name: "Pearl Buttons", category: "BUTTONS", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5, supplierId: supplier.id }
+  ] as const;
 
-  await prisma.productionStage.createMany({
-    data: ["FABRIC", "CUTTING", "SEWING", "PRINTING", "IRONING", "PACKAGING", "FINISHED_GOODS"].map((stage, index) => ({
-      productId: product.id,
-      stage: stage as never,
-      status: index < 3 ? "COMPLETED" : index === 3 ? "IN_PROGRESS" : "PENDING"
-    })),
-    skipDuplicates: true
-  });
+  for (const material of rawMaterials) {
+    await prisma.rawMaterial.upsert({
+      where: { id: material.id },
+      update: {},
+      create: material as never
+    });
+  }
+
+  for (const [index, stage] of ["FABRIC", "CUTTING", "SEWING", "PRINTING", "IRONING", "PACKAGING", "FINISHED_GOODS"].entries()) {
+    await prisma.productionStage.upsert({
+      where: { productId_stage: { productId: product.id, stage: stage as never } },
+      update: {},
+      create: {
+        productId: product.id,
+        stage: stage as never,
+        status: index < 3 ? "COMPLETED" : index === 3 ? "IN_PROGRESS" : "PENDING"
+      }
+    });
+  }
 }
 
 main()
