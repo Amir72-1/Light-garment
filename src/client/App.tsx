@@ -607,6 +607,9 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
   const dashboard = useQuery({ queryKey: ["payroll-dashboard", month, year], queryFn: () => api.payrollDashboard(token, month, year) });
   const payrolls = useQuery({ queryKey: ["payrolls", month, year], queryFn: () => api.payrolls(token, month, year) });
   const reports = useQuery({ queryKey: ["payroll-reports", month, year], queryFn: () => api.payrollReports(token, month, year) });
+  useEffect(() => {
+    document.getElementById("payroll-history-scroll")?.scrollTo({ left: 0 });
+  }, [month, year, payrolls.data?.length]);
   const invalidatePayroll = () => {
     queryClient.invalidateQueries({ queryKey: ["payroll-dashboard"] });
     queryClient.invalidateQueries({ queryKey: ["payrolls"] });
