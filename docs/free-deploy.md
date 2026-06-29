@@ -52,6 +52,7 @@ npm ci --include=dev && npm run build
 
 TypeScript, Vite, Prisma CLI, and `@types/*` packages are needed at build time even though the app runs in production mode.
 The repository also includes `.npmrc` with `include=dev` so Render does not omit declaration packages during `tsc`.
+`postinstall` runs `prisma generate`, and the production server starts from `dist/server/server.js`.
 
 ## First login
 
