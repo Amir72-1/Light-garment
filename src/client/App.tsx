@@ -232,7 +232,7 @@ function Dashboard({ token, role }: { token: string; role: RoleName }) {
         <Card>
           <h3 className="text-lg font-bold">Low stock alerts</h3>
           <div className="mt-4 grid gap-3">
-            {data.lowStockAlerts.length ? data.lowStockAlerts.map((alert) => <div key={alert.id} className="flex items-center justify-between rounded-xl bg-amber-50 p-3 text-sm"><span>{alert.name}</span><Badge className="bg-amber-100 text-amber-800">{alert.quantity} / {alert.threshold}</Badge></div>) : <p className="text-sm text-slate-500">No low stock alerts.</p>}
+            {data.lowStockAlerts.length ? data.lowStockAlerts.map((alert) => <div key={alert.id} className="flex items-center justify-between rounded-xl bg-amber-50 p-3 text-sm text-amber-950 dark:border dark:border-amber-500/30 dark:bg-black dark:text-amber-100"><span>{alert.name}</span><Badge className="bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100">{alert.quantity} / {alert.threshold}</Badge></div>) : <p className="text-sm text-slate-500">No low stock alerts.</p>}
           </div>
         </Card>
         <Card>
