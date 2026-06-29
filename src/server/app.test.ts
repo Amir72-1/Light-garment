@@ -269,6 +269,47 @@ describe("Light Garment ERP API", () => {
     expect(rows.body.some((item: { name: string }) => item.name === "Test Denim Fabric")).toBe(true);
   });
 
+  it("records raw material usage history permanently", async () => {
+    const { app, token } = await login();
+    const rawRows = await request(app).get("/api/raw-materials").set("Authorization", `Bearer ${token}`).expect(200);
+    const raw = rawRows.body[0];
+
+    const used = await request(app)
+      .post(`/api/raw-materials/${raw.id}/use`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ quantity: 5, reference: "CUT-001", note: "Cutting room use" })
+      .expect(201);
+
+    expect(used.body.rawMaterialName).toBe(raw.name);
+    expect(used.body.type).toBe("Used");
+
+    const history = await request(app).get("/api/raw-materials/history").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(history.body.some((item: { id: string }) => item.id === used.body.id)).toBe(true);
+  });
+
+  it("lets owner manage users and blocks non-owner user management", async () => {
+    const { app, token } = await login();
+    const created = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Test User", email: "test.user@example.com", password: "Password123!", role: "Salesperson" })
+      .expect(201);
+
+    expect(created.body.isActive).toBe(true);
+
+    const suspended = await request(app)
+      .patch(`/api/users/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ isActive: false, password: "Password456!" })
+      .expect(200);
+
+    expect(suspended.body.isActive).toBe(false);
+    await request(app).delete(`/api/users/${created.body.id}`).set("Authorization", `Bearer ${token}`).expect(204);
+
+    const salesLogin = await login("sales@lightgarment.example");
+    await request(salesLogin.app).get("/api/users").set("Authorization", `Bearer ${salesLogin.token}`).expect(403);
+  });
+
   it("creates POS invoices and deducts shirt stock", async () => {
     const { app, token } = await login();
     const products = await request(app).get("/api/products").set("Authorization", `Bearer ${token}`).expect(200);

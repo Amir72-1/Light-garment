@@ -21,6 +21,7 @@ import type {
   Product,
   ProductionStage,
   RawMaterial,
+  RawMaterialMovement,
   RoleName,
   Sale
 } from "../shared/types.js";
@@ -225,8 +226,41 @@ export class PrismaRepository {
 
   async authenticate(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email }, include: { role: true } });
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) return null;
+    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) return null;
+    await this.prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
     return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name] };
+  }
+
+  async listUsers() {
+    const rows = await this.prisma.user.findMany({ include: { role: true }, orderBy: { createdAt: "desc" } });
+    const now = Date.now();
+    return rows.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: roleFromDb[user.role.name],
+      isActive: user.isActive,
+      lastSeenAt: user.updatedAt.toISOString(),
+      isOnline: now - user.updatedAt.getTime() < 15 * 60_000,
+      createdAt: user.createdAt.toISOString()
+    }));
+  }
+
+  async createUser(input: { name: string; email: string; password: string; role: RoleName }) {
+    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: roleToDb[input.role] as any } });
+    const user = await this.prisma.user.create({ data: { name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), roleId: role.id }, include: { role: true } });
+    return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], isActive: user.isActive, lastSeenAt: user.updatedAt.toISOString(), isOnline: true, createdAt: user.createdAt.toISOString() };
+  }
+
+  async updateUser(userId: string, input: { name?: string; role?: RoleName; isActive?: boolean; password?: string }) {
+    const role = input.role ? await this.prisma.role.findUniqueOrThrow({ where: { name: roleToDb[input.role] as any } }) : null;
+    const user = await this.prisma.user.update({ where: { id: userId }, data: { name: input.name, roleId: role?.id, isActive: input.isActive, passwordHash: input.password ? await bcrypt.hash(input.password, 12) : undefined }, include: { role: true } }).catch(() => null);
+    return user ? { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], isActive: user.isActive, lastSeenAt: user.updatedAt.toISOString(), isOnline: true, createdAt: user.createdAt.toISOString() } : null;
+  }
+
+  async deleteUser(userId: string) {
+    const deleted = await this.prisma.user.delete({ where: { id: userId } }).catch(() => null);
+    return Boolean(deleted);
   }
 
   async resetPassword(email: string) {
@@ -708,6 +742,22 @@ export class PrismaRepository {
       }
     });
     return { id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) };
+  }
+
+  async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      const material = await tx.rawMaterial.findUnique({ where: { id: rawMaterialId } });
+      if (!material) return null;
+      if (Number(material.quantity) < input.quantity) throw new Error("Insufficient raw material stock");
+      await tx.rawMaterial.update({ where: { id: rawMaterialId }, data: { quantity: Number(material.quantity) - input.quantity } });
+      const movement = await tx.rawMaterialMovement.create({ data: { rawMaterialId, type: "Used", quantity: input.quantity, unit: material.unit, reference: input.reference, note: input.note }, include: { rawMaterial: true } });
+      return { id: movement.id, rawMaterialId, rawMaterialName: movement.rawMaterial.name, type: "Used", quantity: Number(movement.quantity), unit: movement.unit, reference: movement.reference ?? undefined, note: movement.note ?? undefined, createdAt: movement.createdAt.toISOString() } satisfies RawMaterialMovement;
+    });
+  }
+
+  async listRawMaterialMovements() {
+    const rows = await this.prisma.rawMaterialMovement.findMany({ include: { rawMaterial: true }, orderBy: { createdAt: "desc" } });
+    return rows.map((movement): RawMaterialMovement => ({ id: movement.id, rawMaterialId: movement.rawMaterialId, rawMaterialName: movement.rawMaterial.name, type: movement.type as RawMaterialMovement["type"], quantity: Number(movement.quantity), unit: movement.unit, reference: movement.reference ?? undefined, note: movement.note ?? undefined, createdAt: movement.createdAt.toISOString() }));
   }
 
   async listProduction() {

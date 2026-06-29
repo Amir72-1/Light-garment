@@ -15,6 +15,17 @@ export interface UserSession {
   };
 }
 
+export interface ManagedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: RoleName;
+  isActive: boolean;
+  lastSeenAt?: string;
+  isOnline: boolean;
+  createdAt: string;
+}
+
 export interface Employee {
   id: string;
   employeeCode: string;
@@ -94,6 +105,18 @@ export interface InventoryMovement {
   fromLocation?: string;
   toLocation?: string;
   reference?: string;
+  createdAt: string;
+}
+
+export interface RawMaterialMovement {
+  id: string;
+  rawMaterialId: string;
+  rawMaterialName: string;
+  type: "Stock in" | "Used" | "Adjustment";
+  quantity: number;
+  unit: string;
+  reference?: string;
+  note?: string;
   createdAt: string;
 }
 

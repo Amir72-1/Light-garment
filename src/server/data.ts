@@ -16,6 +16,7 @@ import type {
   Product,
   ProductionStage,
   RawMaterial,
+  RawMaterialMovement,
   RoleName,
   Sale,
   SaleItem
@@ -28,6 +29,9 @@ type UserRecord = {
   email: string;
   passwordHash: string;
   role: RoleName;
+  isActive: boolean;
+  lastSeenAt?: string;
+  createdAt: string;
 };
 
 type ListQuery = {
@@ -112,6 +116,7 @@ export class DemoRepository {
   private products: Product[] = [];
   private inventory: InventoryMovement[] = [];
   private rawMaterials: RawMaterial[] = [];
+  private rawMaterialMovements: RawMaterialMovement[] = [];
   private sales: Sale[] = [];
   private payrolls: PayrollRecord[] = [];
   private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
@@ -136,11 +141,11 @@ export class DemoRepository {
   private async seed() {
     const passwordHash = await bcrypt.hash("Password123!", 12);
     this.users = [
-      { id: "usr_owner", name: "Light Garment Owner", email: "owner@lightgarment.example", passwordHash, role: "Owner" },
-      { id: "usr_manager", name: "Production Manager", email: "manager@lightgarment.example", passwordHash, role: "Manager" },
-      { id: "usr_store", name: "Store Keeper", email: "store@lightgarment.example", passwordHash, role: "Storekeeper" },
-      { id: "usr_sales", name: "Sales Cashier", email: "sales@lightgarment.example", passwordHash, role: "Salesperson" },
-      { id: "usr_hr", name: "HR Administrator", email: "hr@lightgarment.example", passwordHash, role: "HR/Admin" }
+      { id: "usr_owner", name: "Light Garment Owner", email: "owner@lightgarment.example", passwordHash, role: "Owner", isActive: true, createdAt: nowIso() },
+      { id: "usr_manager", name: "Production Manager", email: "manager@lightgarment.example", passwordHash, role: "Manager", isActive: true, createdAt: nowIso() },
+      { id: "usr_store", name: "Store Keeper", email: "store@lightgarment.example", passwordHash, role: "Storekeeper", isActive: true, createdAt: nowIso() },
+      { id: "usr_sales", name: "Sales Cashier", email: "sales@lightgarment.example", passwordHash, role: "Salesperson", isActive: true, createdAt: nowIso() },
+      { id: "usr_hr", name: "HR Administrator", email: "hr@lightgarment.example", passwordHash, role: "HR/Admin", isActive: true, createdAt: nowIso() }
     ];
 
     this.employees = [
@@ -259,10 +264,48 @@ export class DemoRepository {
 
   async authenticate(email: string, password: string) {
     const user = this.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) {
       return null;
     }
+    user.lastSeenAt = nowIso();
     return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
+  async listUsers() {
+    const now = Date.now();
+    return this.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      lastSeenAt: user.lastSeenAt,
+      isOnline: Boolean(user.lastSeenAt && now - new Date(user.lastSeenAt).getTime() < 15 * 60_000),
+      createdAt: user.createdAt
+    }));
+  }
+
+  async createUser(input: { name: string; email: string; password: string; role: RoleName }) {
+    if (this.users.some((user) => user.email.toLowerCase() === input.email.toLowerCase())) throw new Error("User email already exists");
+    const user: UserRecord = { id: id("usr"), name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), role: input.role, isActive: true, createdAt: nowIso() };
+    this.users.unshift(user);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async updateUser(userId: string, input: { name?: string; role?: RoleName; isActive?: boolean; password?: string }) {
+    const user = this.users.find((item) => item.id === userId);
+    if (!user) return null;
+    user.name = input.name ?? user.name;
+    user.role = input.role ?? user.role;
+    user.isActive = input.isActive ?? user.isActive;
+    if (input.password) user.passwordHash = await bcrypt.hash(input.password, 12);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async deleteUser(userId: string) {
+    const before = this.users.length;
+    this.users = this.users.filter((item) => item.id !== userId);
+    return this.users.length < before;
   }
 
   async resetPassword(email: string) {
@@ -660,6 +703,21 @@ export class DemoRepository {
     this.rawMaterials.unshift(material);
     this.log(`Raw material ${material.name} registered`);
     return material;
+  }
+
+  async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {
+    const material = this.rawMaterials.find((item) => item.id === rawMaterialId);
+    if (!material) return null;
+    if (material.quantity < input.quantity) throw new Error("Insufficient raw material stock");
+    material.quantity = Math.max(0, material.quantity - input.quantity);
+    const movement: RawMaterialMovement = { id: id("rawmove"), rawMaterialId, rawMaterialName: material.name, type: "Used", quantity: input.quantity, unit: material.unit, reference: input.reference, note: input.note, createdAt: nowIso() };
+    this.rawMaterialMovements.unshift(movement);
+    this.log(`Raw material used: ${material.name}`);
+    return movement;
+  }
+
+  async listRawMaterialMovements() {
+    return this.rawMaterialMovements;
   }
 
   async listProduction() {

@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
-import type { AttendanceRecord, AttendanceSettings, Employee, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Employee, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
@@ -39,6 +39,16 @@ const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashbo
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
+}
+
+function exportCsv(filename: string, rows: Array<Array<string | number | undefined>>) {
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function applyTheme(theme: ThemeMode) {
@@ -74,7 +84,7 @@ export default function App() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
       {menuOpen && <button aria-label="Close navigation overlay" className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-sm lg:hidden" onClick={() => setMenuOpen(false)} />}
-      <aside className={cn("fixed inset-y-0 left-0 z-30 flex w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
+      <aside className={cn("fixed inset-y-0 left-0 z-30 flex max-h-dvh w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="mb-8 rounded-2xl bg-emerald-950 p-4 text-white">
           <div className="flex items-center gap-3">
             <LightGarmentLogo />
@@ -85,7 +95,7 @@ export default function App() {
           </div>
           <p className="mt-3 text-sm text-emerald-100">Signed in as {session.user.role}</p>
         </div>
-        <nav className="grid gap-2 pb-6">
+        <nav className="grid min-h-0 gap-2 pb-6">
           {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
@@ -122,7 +132,7 @@ export default function App() {
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
           {active === "reports" && <Reports token={session.token} />}
-          {active === "settings" && <SettingsPage token={session.token} theme={theme} onThemeChange={setTheme} />}
+          {active === "settings" && <SettingsPage token={session.token} role={session.user.role} theme={theme} onThemeChange={setTheme} />}
         </section>
       </main>
     </div>
@@ -728,10 +738,14 @@ function Inventory({ token }: { token: string }) {
   const products = useQuery({ queryKey: ["products"], queryFn: () => api.products(token) });
   const inventory = useQuery({ queryKey: ["inventory"], queryFn: () => api.inventory(token) });
   const rawMaterials = useQuery({ queryKey: ["raw"], queryFn: () => api.rawMaterials(token) });
+  const rawHistory = useQuery({ queryKey: ["raw-history"], queryFn: () => api.rawMaterialHistory(token) });
+  const sales = useQuery({ queryKey: ["sales"], queryFn: () => api.sales(token) });
   const productCreate = useMutation({ mutationFn: (body: Partial<Product>) => api.createProduct(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
   const stockMove = useMutation({ mutationFn: (body: Record<string, unknown>) => api.moveStock(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
   const rawCreate = useMutation({ mutationFn: (body: Omit<RawMaterial, "id">) => api.createRawMaterial(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
+  const rawUse = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.useRawMaterial(token, id, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["raw-history"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
   const firstProduct = products.data?.[0];
+  const firstRaw = rawMaterials.data?.[0];
 
   return (
     <div className="grid gap-6">
@@ -776,6 +790,35 @@ function Inventory({ token }: { token: string }) {
           <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category}) · {currency(material.unitCost)} / {material.unit}</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
         </Card>
       </div>
+      <Card className="print:shadow-none">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
+          <div><h3 className="text-lg font-bold">Inventory usage records</h3><p className="text-sm text-slate-500">Permanent product, raw material, and POS movement history.</p></div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
+            <Button onClick={() => exportCsv("inventory-history.csv", [["Type", "Item", "Quantity", "Unit", "Reference", "Date"], ...(inventory.data || []).map((m) => [m.type, m.productName, m.quantity, "pcs", m.reference, m.createdAt]), ...(rawHistory.data || []).map((m) => [m.type, m.rawMaterialName, m.quantity, m.unit, m.reference, m.createdAt]), ...(sales.data || []).flatMap((sale) => sale.items.map((item) => ["POS Sale", item.productName, item.quantity, "pcs", sale.invoiceNumber, sale.createdAt]))])}>Export Excel CSV</Button>
+          </div>
+        </div>
+        <form className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-3 print:hidden" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); rawUse.mutate({ id: String(form.rawMaterialId), body: { quantity: Number(form.quantity), reference: form.reference, note: form.note } }); event.currentTarget.reset(); }}>
+          <h4 className="font-bold">Record raw material used</h4>
+          <div className="grid gap-3 md:grid-cols-5">
+            <Select name="rawMaterialId" defaultValue={firstRaw?.id}>{rawMaterials.data?.map((material) => <option key={material.id} value={material.id}>{material.name}</option>)}</Select>
+            <Input name="quantity" type="number" step="0.01" placeholder="Quantity used" required />
+            <Input name="reference" placeholder="Production ref" />
+            <Input name="note" placeholder="Note" />
+            <Button disabled={rawUse.isPending}>{rawUse.isPending ? "Saving..." : "Record usage"}</Button>
+          </div>
+        </form>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="text-slate-500"><tr><th className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th>Date</th></tr></thead>
+            <tbody>
+              {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
+              {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
+              {sales.data?.flatMap((sale) => sale.items.map((item) => <tr key={`sale-${sale.id}-${item.productId}`} className="border-t"><td className="py-2">POS Sale</td><td>{item.productName}</td><td>{item.quantity}</td><td>pcs</td><td>{sale.invoiceNumber}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -839,33 +882,51 @@ function SaleStatusBadge({ status }: { status: Sale["paymentStatus"] }) {
 function Production({ token }: { token: string }) {
   const queryClient = useQueryClient();
   const production = useQuery({ queryKey: ["production"], queryFn: () => api.production(token) });
-  const update = useMutation({ mutationFn: ({ id, status }: { id: string; status: "Completed" | "In progress" | "Blocked" }) => api.updateProduction(token, id, { status, completedAt: status === "Completed" ? new Date().toISOString() : undefined }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["production"] }) });
+  const update = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.updateProduction(token, id, body), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["production"] }) });
   return (
     <Card>
       <h2 className="text-xl font-black">Production workflow</h2>
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">{production.data?.map((stage) => <div key={stage.id} className="rounded-2xl border border-slate-100 p-4"><Badge>{stage.stage}</Badge><h3 className="mt-3 font-bold">{stage.productName}</h3><p className="mt-1 text-sm text-slate-500">{stage.status}</p><div className="mt-4 flex gap-2"><Button variant="secondary" onClick={() => update.mutate({ id: stage.id, status: "In progress" })}>Start</Button><Button onClick={() => update.mutate({ id: stage.id, status: "Completed" })}>Complete</Button></div></div>)}</div>
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{production.data?.map((stage) => (
+        <div key={stage.id} className="rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+          <div className="flex items-start justify-between gap-2"><Badge>{stage.stage}</Badge><Badge className={stage.status === "Completed" ? "bg-emerald-100 text-emerald-800" : stage.status === "Blocked" ? "bg-rose-100 text-rose-800" : ""}>{stage.status}</Badge></div>
+          <h3 className="mt-3 font-bold">{stage.productName}</h3>
+          <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); update.mutate({ id: stage.id, body: { status: form.status, assignedTo: form.assignedTo, notes: form.notes, startedAt: form.status === "In progress" ? new Date().toISOString() : stage.startedAt, completedAt: form.status === "Completed" ? new Date().toISOString() : undefined } }); }}>
+            <Select name="status" defaultValue={stage.status}><option>Pending</option><option>In progress</option><option>Completed</option><option>Blocked</option></Select>
+            <Input name="assignedTo" defaultValue={stage.assignedTo || ""} placeholder="Assigned to" />
+            <Textarea name="notes" defaultValue={stage.notes || ""} rows={2} placeholder="Production notes" />
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "In progress", assignedTo: stage.assignedTo, startedAt: new Date().toISOString(), notes: stage.notes } })}>Start</Button>
+              <Button variant="danger" type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "Blocked", assignedTo: stage.assignedTo, notes: stage.notes } })}>Block</Button>
+              <Button type="button" onClick={() => update.mutate({ id: stage.id, body: { status: "Completed", assignedTo: stage.assignedTo, completedAt: new Date().toISOString(), notes: stage.notes } })}>Complete</Button>
+              <Button variant="secondary" disabled={update.isPending}>Save</Button>
+            </div>
+          </form>
+        </div>
+      ))}</div>
     </Card>
   );
 }
 
 function Reports({ token }: { token: string }) {
   const reports = useQuery({ queryKey: ["reports"], queryFn: () => api.reports(token) });
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(reports.data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "light-garment-reports.json";
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const data = reports.data as any;
+  const exportReport = () => exportCsv("light-garment-reports.csv", [
+    ["Report", "Metric", "Value"],
+    ["Employees", "Total", data?.employeeReport?.total],
+    ["Employees", "Active", data?.employeeReport?.active],
+    ["Inventory", "Total units", data?.inventoryReport?.totalUnits],
+    ["Inventory", "Value", data?.inventoryReport?.inventoryValue],
+    ["Sales", "Invoices", data?.salesReport?.invoices],
+    ["Sales", "Revenue", data?.salesReport?.revenue],
+    ["Profit", "Gross profit", data?.profitReport?.grossProfit]
+  ]);
   return (
     <Card className="print:shadow-none">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
         <div><h2 className="text-xl font-black">Reports</h2><p className="text-sm text-slate-500 dark:text-slate-400">Employee, attendance, inventory, sales, and profit reports.</p></div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
-          <Button onClick={exportJson}>Export JSON</Button>
+          <Button onClick={exportReport}>Export Excel CSV</Button>
         </div>
       </div>
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 print:border-0 print:p-0 dark:border-slate-800 dark:bg-slate-950">
@@ -873,14 +934,33 @@ function Reports({ token }: { token: string }) {
           <h1 className="text-2xl font-black">Light Garment Manufacturing PLC Reports</h1>
           <p className="mt-1 text-sm">Generated {new Date().toLocaleString()}</p>
         </div>
-        <pre className="mt-4 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-emerald-100 print:whitespace-pre-wrap print:bg-white print:p-0 print:text-slate-950">{JSON.stringify(reports.data, null, 2)}</pre>
+        <div className="mt-4 grid gap-5">
+          <ReportTable title="Employee report" rows={[["Total employees", data?.employeeReport?.total], ["Active employees", data?.employeeReport?.active]]} />
+          <ReportTable title="Inventory report" rows={[["Total units", data?.inventoryReport?.totalUnits], ["Inventory value", currency(data?.inventoryReport?.inventoryValue || 0)]]} />
+          <ReportTable title="Sales report" rows={[["Invoices", data?.salesReport?.invoices], ["Revenue", currency(data?.salesReport?.revenue || 0)]]} />
+          <ReportTable title="Profit report" rows={[["Revenue", currency(data?.profitReport?.revenue || 0)], ["COGS", currency(data?.profitReport?.cogs || 0)], ["Gross profit", currency(data?.profitReport?.grossProfit || 0)]]} />
+          <div className="overflow-x-auto">
+            <h3 className="font-bold">Attendance report</h3>
+            <table className="mt-2 w-full min-w-[640px] text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">Employee</th><th>Date</th><th>Status</th><th>Hours</th><th>Overtime</th></tr></thead><tbody>{data?.attendanceReport?.records?.map((record: AttendanceRecord) => <tr key={record.id} className="border-t"><td className="py-2">{record.employeeName}</td><td>{record.date}</td><td>{record.status}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ?? "-"}</td></tr>)}</tbody></table>
+          </div>
+        </div>
       </section>
     </Card>
   );
 }
 
-function SettingsPage({ token, theme, onThemeChange }: { token: string; theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
+function ReportTable({ title, rows }: { title: string; rows: Array<[string, string | number | undefined]> }) {
+  return <div className="overflow-x-auto"><h3 className="font-bold">{title}</h3><table className="mt-2 w-full text-left text-sm"><tbody>{rows.map(([label, value]) => <tr key={label} className="border-t"><td className="py-2 text-slate-500">{label}</td><td className="font-semibold">{value ?? "-"}</td></tr>)}</tbody></table></div>;
+}
+
+function SettingsPage({ token, role, theme, onThemeChange }: { token: string; role: RoleName; theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
+  const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.settings(token) });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api.users(token), enabled: role === "Owner" });
+  const refreshUsers = () => queryClient.invalidateQueries({ queryKey: ["users"] });
+  const createUser = useMutation({ mutationFn: (body: Record<string, unknown>) => api.createUser(token, body), onSuccess: refreshUsers });
+  const updateUser = useMutation({ mutationFn: ({ user, body }: { user: ManagedUser; body: Record<string, unknown> }) => api.updateUser(token, user.id, body), onSuccess: refreshUsers });
+  const deleteUser = useMutation({ mutationFn: (id: string) => api.deleteUser(token, id), onSuccess: refreshUsers });
   return (
     <div className="grid gap-6">
       <Card>
@@ -892,6 +972,26 @@ function SettingsPage({ token, theme, onThemeChange }: { token: string; theme: T
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use Light, Dark, or follow your system setting.</p>
         <div className="mt-4 max-w-xs"><ThemeToggle theme={theme} onThemeChange={onThemeChange} /></div>
       </Card>
+      {role === "Owner" && (
+        <Card>
+          <h2 className="text-xl font-black">User management</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Owner can add, suspend, delete users, change passwords, and see recent online status.</p>
+          <form className="mt-4 grid gap-3 md:grid-cols-5" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); createUser.mutate({ name: form.name, email: form.email, password: form.password, role: form.role }); event.currentTarget.reset(); }}>
+            <Input name="name" placeholder="Name" required />
+            <Input name="email" type="email" placeholder="Email" required />
+            <Input name="password" type="password" placeholder="Password" required />
+            <Select name="role"><option>Owner</option><option>Manager</option><option>Storekeeper</option><option>Salesperson</option><option>HR/Admin</option></Select>
+            <Button disabled={createUser.isPending}>{createUser.isPending ? "Adding..." : "Add user"}</Button>
+          </form>
+          {createUser.error && <p className="mt-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{createUser.error.message}</p>}
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="text-slate-500"><tr><th className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th>Actions</th></tr></thead>
+              <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

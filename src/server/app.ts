@@ -103,6 +103,26 @@ const rawMaterialSchema = z.object({
   unitCost: z.coerce.number().nonnegative()
 });
 
+const rawMaterialUseSchema = z.object({
+  quantity: z.coerce.number().positive(),
+  reference: z.string().optional(),
+  note: z.string().optional()
+});
+
+const userCreateSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(8),
+  role: z.enum(["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"])
+});
+
+const userUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  role: z.enum(["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"]).optional(),
+  isActive: z.boolean().optional(),
+  password: z.string().min(8).optional().or(z.literal(""))
+});
+
 const productionSchema = z.object({
   status: z.enum(["Pending", "In progress", "Completed", "Blocked"]).optional(),
   assignedTo: z.string().optional(),
@@ -386,6 +406,15 @@ export async function createApp() {
     response.status(201).json(await repository.createRawMaterial(rawMaterialSchema.parse(request.body)));
   }));
 
+  app.get("/api/raw-materials/history", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listRawMaterialMovements());
+  }));
+
+  app.post("/api/raw-materials/:id/use", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const movement = await repository.useRawMaterial(String(request.params.id), rawMaterialUseSchema.parse(request.body));
+    response.status(movement ? 201 : 404).json(movement ?? { message: "Raw material not found" });
+  }));
+
   app.get("/api/sales", auth, allow("Owner", "Manager", "Salesperson"), asyncRoute(async (_request, response) => {
     response.json(await repository.listSales());
   }));
@@ -461,6 +490,25 @@ export async function createApp() {
     response.json(await repository.settings());
   }));
 
+  app.get("/api/users", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listUsers());
+  }));
+
+  app.post("/api/users", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.status(201).json(await repository.createUser(userCreateSchema.parse(request.body)));
+  }));
+
+  app.patch("/api/users/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const parsed = userUpdateSchema.parse(request.body);
+    const user = await repository.updateUser(String(request.params.id), { ...parsed, password: parsed.password || undefined });
+    response.status(user ? 200 : 404).json(user ?? { message: "User not found" });
+  }));
+
+  app.delete("/api/users/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteUser(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
   if (fs.existsSync(clientDir)) {
     app.use(express.static(clientDir));
     app.get(/^(?!\/api).*/, (_request, response) => {
@@ -474,7 +522,7 @@ export async function createApp() {
       return;
     }
     if (error instanceof Error) {
-      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") || error.message.includes("Unique constraint") ? 409 : 500).json({ message: error.message });
+      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") || error.message.includes("already exists") || error.message.includes("Unique constraint") ? 409 : 500).json({ message: error.message });
       return;
     }
     response.status(500).json({ message: "Unexpected server error" });

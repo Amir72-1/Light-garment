@@ -6,6 +6,7 @@ import type {
   Employee,
   EmployeeAttendanceProfile,
   InventoryMovement,
+  ManagedUser,
   Paginated,
   PayrollDashboard,
   PayrollRecord,
@@ -14,6 +15,7 @@ import type {
   Product,
   ProductionStage,
   RawMaterial,
+  RawMaterialMovement,
   Sale,
   UserSession
 } from "../shared/types";
@@ -64,6 +66,8 @@ export const api = {
   moveStock: (token: string, body: Record<string, unknown>) => request<InventoryMovement>("/api/inventory/movements", { method: "POST", body: JSON.stringify(body) }, token),
   rawMaterials: (token: string) => request<RawMaterial[]>("/api/raw-materials", {}, token),
   createRawMaterial: (token: string, body: Omit<RawMaterial, "id">) => request<RawMaterial>("/api/raw-materials", { method: "POST", body: JSON.stringify(body) }, token),
+  useRawMaterial: (token: string, id: string, body: Record<string, unknown>) => request<RawMaterialMovement>(`/api/raw-materials/${id}/use`, { method: "POST", body: JSON.stringify(body) }, token),
+  rawMaterialHistory: (token: string) => request<RawMaterialMovement[]>("/api/raw-materials/history", {}, token),
   sales: (token: string) => request<Sale[]>("/api/sales", {}, token),
   createSale: (token: string, body: Record<string, unknown>) => request<Sale>("/api/sales", { method: "POST", body: JSON.stringify(body) }, token),
   markSalePaid: (token: string, id: string, body: Record<string, unknown>) => request<Sale>(`/api/sales/${id}/pay`, { method: "PATCH", body: JSON.stringify(body) }, token),
@@ -79,5 +83,9 @@ export const api = {
   production: (token: string) => request<ProductionStage[]>("/api/production", {}, token),
   updateProduction: (token: string, id: string, body: Partial<ProductionStage>) => request<ProductionStage>(`/api/production/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
   reports: (token: string) => request<Record<string, unknown>>("/api/reports", {}, token),
-  settings: (token: string) => request<Record<string, string>>("/api/settings", {}, token)
+  settings: (token: string) => request<Record<string, string>>("/api/settings", {}, token),
+  users: (token: string) => request<ManagedUser[]>("/api/users", {}, token),
+  createUser: (token: string, body: Record<string, unknown>) => request<ManagedUser>("/api/users", { method: "POST", body: JSON.stringify(body) }, token),
+  updateUser: (token: string, id: string, body: Record<string, unknown>) => request<ManagedUser>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
+  deleteUser: (token: string, id: string) => request<void>(`/api/users/${id}`, { method: "DELETE" }, token)
 };
