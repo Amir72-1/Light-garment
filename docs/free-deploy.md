@@ -44,6 +44,15 @@ npm run start:deploy
 
 That command pushes the Prisma schema, seeds required roles/demo users idempotently, then starts the Express + React app.
 
+The Render build command is intentionally:
+
+```bash
+npm ci --include=dev && npm run build
+```
+
+TypeScript, Vite, Prisma CLI, and `@types/*` packages are needed at build time even though the app runs in production mode.
+The repository also includes `.npmrc` with `include=dev` so Render does not omit declaration packages during `tsc`.
+
 ## First login
 
 After deployment, use:
