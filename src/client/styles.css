@@ -59,7 +59,7 @@ table {
 .overflow-x-auto {
   display: block;
   width: 100%;
-  max-width: 100%;
+  max-width: calc(100vw - 2rem);
   min-width: 0;
   overflow-x: scroll !important;
   overflow-y: hidden;
@@ -67,6 +67,12 @@ table {
   scrollbar-color: #10b981 #e2e8f0;
   scrollbar-width: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1024px) {
+  .overflow-x-auto {
+    max-width: calc(100vw - 22rem);
+  }
 }
 
 .overflow-x-auto::-webkit-scrollbar,
