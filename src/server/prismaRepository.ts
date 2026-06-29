@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type {
   AttendanceRecord,
+  AttendanceSettings,
   AttendanceStats,
   DashboardMetrics,
   Department,
@@ -13,12 +14,18 @@ import type {
   EmploymentType,
   Gender,
   InventoryMovement,
+  PayrollDashboard,
+  PayrollRecord,
+  PayrollReports,
+  PayrollSettings,
   Product,
   ProductionStage,
   RawMaterial,
+  RawMaterialMovement,
   RoleName,
   Sale
 } from "../shared/types.js";
+import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 
 type ListQuery = {
   search?: string;
@@ -55,7 +62,10 @@ const rawCategoryFromDb: Record<string, RawMaterial["category"]> = { FABRIC: "Fa
 const rawCategoryToDb: Record<RawMaterial["category"], string> = { Fabric: "FABRIC", Thread: "THREAD", Buttons: "BUTTONS", Labels: "LABELS", Packaging: "PACKAGING" };
 const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late" };
 const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE" };
-const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
+const defaultAttendanceSettings: AttendanceSettings = {
+  startTime: process.env.ATTENDANCE_START_TIME || "09:00",
+  endTime: process.env.ATTENDANCE_END_TIME || "17:00"
+};
 
 function isoDate(value: Date | string) {
   return new Date(value).toISOString().slice(0, 10);
@@ -78,7 +88,8 @@ function employeeFromDb(row: any): Employee {
     salary: Number(row.salary),
     employmentType: employmentFromDb[row.employmentType],
     hireDate: isoDate(row.hireDate),
-    status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"]
+    status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"],
+    archivedAt: row.archivedAt?.toISOString()
   };
 }
 
@@ -86,7 +97,7 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isLate(checkInTime: string) {
+function isLate(checkInTime: string, startTime: string) {
   const time = new Date(checkInTime).toTimeString().slice(0, 5);
   return time > startTime;
 }
@@ -97,13 +108,35 @@ function totalHours(checkInTime?: string | null, checkOutTime?: string | null) {
   return Math.max(0, Math.round(hours * 100) / 100);
 }
 
+function dateTimeFor(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function shouldDefaultCheckout(date: string, endTime: string) {
+  return new Date() >= dateTimeFor(date, endTime);
+}
+
+function effectiveCheckOutTime(row: { date: string; checkInTime?: string | null; checkOutTime?: string | null }, settings: AttendanceSettings) {
+  if (row.checkOutTime || !row.checkInTime || !shouldDefaultCheckout(row.date, settings.endTime)) {
+    return row.checkOutTime ?? undefined;
+  }
+  return dateTimeFor(row.date, settings.endTime).toISOString();
+}
+
+function overtimeHours(checkOutTime: string | undefined, date: string, settings: AttendanceSettings) {
+  if (!checkOutTime) return undefined;
+  const overtime = (new Date(checkOutTime).getTime() - dateTimeFor(date, settings.endTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(overtime * 100) / 100);
+}
+
 function workingDaysInMonth(month: string) {
   const [year, monthIndex] = month.split("-").map(Number);
   const days = new Date(year, monthIndex, 0).getDate();
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
 }
 
-function attendanceFromRow(row: any): AttendanceRecord {
+function attendanceFromRow(row: any, settings: AttendanceSettings = defaultAttendanceSettings): AttendanceRecord {
+  const checkOutTime = effectiveCheckOutTime(row, settings);
   return {
     id: row.id,
     employeeId: row.employeeId,
@@ -113,9 +146,10 @@ function attendanceFromRow(row: any): AttendanceRecord {
     position: row.employee.position,
     date: row.date,
     checkInTime: row.checkInTime ?? undefined,
-    checkOutTime: row.checkOutTime ?? undefined,
+    checkOutTime,
     status: attendanceFromDb[row.status],
-    totalHours: row.totalHours ?? undefined
+    totalHours: totalHours(row.checkInTime, checkOutTime) ?? row.totalHours ?? undefined,
+    overtimeHours: overtimeHours(checkOutTime, row.date, settings) ?? row.overtimeHours ?? undefined
   };
 }
 
@@ -129,6 +163,34 @@ function absentRecord(employee: any, date: string): AttendanceRecord {
     position: employee.position,
     date,
     status: "Absent"
+  };
+}
+
+function payrollFromRow(row: any): PayrollRecord {
+  return {
+    id: row.id,
+    employeeId: row.employeeId,
+    employee: employeeFromDb(row.employee),
+    payrollMonth: row.payrollMonth,
+    payrollYear: row.payrollYear,
+    basicSalary: Number(row.basicSalary),
+    overtimeHours: Number(row.overtimeHours),
+    overtimePay: Number(row.overtimePay),
+    bonus: Number(row.bonus),
+    allowance: Number(row.allowance),
+    deductions: Number(row.deductions),
+    tax: Number(row.tax),
+    absentDays: row.absentDays,
+    lateDays: row.lateDays,
+    presentDays: Math.max(0, row.workingDays - row.absentDays - row.lateDays),
+    workingDays: row.workingDays,
+    payableSalary: Number(row.payableSalary),
+    paymentStatus: row.paymentStatus === "PAID" ? "Paid" : "Pending",
+    paymentDate: row.paymentDate?.toISOString(),
+    paymentMethod: row.paymentMethod ? methodFromDb[row.paymentMethod] as PayrollRecord["paymentMethod"] : undefined,
+    notes: row.notes ?? undefined,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
   };
 }
 
@@ -150,6 +212,9 @@ function productFromDb(row: any): Product {
 }
 
 export class PrismaRepository {
+  private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
+  private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
+
   constructor(private prisma: PrismaClient) {}
 
   static create() {
@@ -161,8 +226,41 @@ export class PrismaRepository {
 
   async authenticate(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email }, include: { role: true } });
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) return null;
+    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) return null;
+    await this.prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
     return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name] };
+  }
+
+  async listUsers() {
+    const rows = await this.prisma.user.findMany({ include: { role: true }, orderBy: { createdAt: "desc" } });
+    const now = Date.now();
+    return rows.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: roleFromDb[user.role.name],
+      isActive: user.isActive,
+      lastSeenAt: user.updatedAt.toISOString(),
+      isOnline: now - user.updatedAt.getTime() < 15 * 60_000,
+      createdAt: user.createdAt.toISOString()
+    }));
+  }
+
+  async createUser(input: { name: string; email: string; password: string; role: RoleName }) {
+    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: roleToDb[input.role] as any } });
+    const user = await this.prisma.user.create({ data: { name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), roleId: role.id }, include: { role: true } });
+    return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], isActive: user.isActive, lastSeenAt: user.updatedAt.toISOString(), isOnline: true, createdAt: user.createdAt.toISOString() };
+  }
+
+  async updateUser(userId: string, input: { name?: string; role?: RoleName; isActive?: boolean; password?: string }) {
+    const role = input.role ? await this.prisma.role.findUniqueOrThrow({ where: { name: roleToDb[input.role] as any } }) : null;
+    const user = await this.prisma.user.update({ where: { id: userId }, data: { name: input.name, roleId: role?.id, isActive: input.isActive, passwordHash: input.password ? await bcrypt.hash(input.password, 12) : undefined }, include: { role: true } }).catch(() => null);
+    return user ? { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], isActive: user.isActive, lastSeenAt: user.updatedAt.toISOString(), isOnline: true, createdAt: user.createdAt.toISOString() } : null;
+  }
+
+  async deleteUser(userId: string) {
+    const deleted = await this.prisma.user.delete({ where: { id: userId } }).catch(() => null);
+    return Boolean(deleted);
   }
 
   async resetPassword(email: string) {
@@ -181,7 +279,7 @@ export class PrismaRepository {
 
   async dashboard(): Promise<DashboardMetrics> {
     const [totalEmployees, products, rawMaterials, totalSales, sales] = await Promise.all([
-      this.prisma.employee.count(),
+      this.prisma.employee.count({ where: { archivedAt: null } }),
       this.prisma.product.findMany(),
       this.prisma.rawMaterial.findMany(),
       this.prisma.sale.count(),
@@ -202,7 +300,7 @@ export class PrismaRepository {
   }
 
   async listEmployees(query: ListQuery) {
-    const where: any = {};
+    const where: any = { archivedAt: null };
     if (query.search) {
       where.OR = [
         { fullName: { contains: query.search, mode: "insensitive" } },
@@ -226,6 +324,11 @@ export class PrismaRepository {
   async getEmployee(employeeId: string) {
     const row = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     return row ? employeeFromDb(row) : null;
+  }
+
+  async listArchivedEmployees() {
+    const rows = await this.prisma.employee.findMany({ where: { archivedAt: { not: null } }, orderBy: { archivedAt: "desc" } });
+    return rows.map(employeeFromDb);
   }
 
   async createEmployee(input: EmployeeInput) {
@@ -276,8 +379,8 @@ export class PrismaRepository {
   }
 
   async deleteEmployee(employeeId: string) {
-    await this.prisma.employee.delete({ where: { id: employeeId } }).catch(() => null);
-    return true;
+    const row = await this.prisma.employee.update({ where: { id: employeeId }, data: { archivedAt: new Date(), status: "INACTIVE" } }).catch(() => null);
+    return Boolean(row);
   }
 
   async listAttendance(date = todayKey()) {
@@ -291,7 +394,7 @@ export class PrismaRepository {
     ]);
     return employees.map((employee) => {
       const existing = rows.find((row) => row.employeeId === employee.id);
-      return existing ? attendanceFromRow(existing) : absentRecord(employee, date);
+      return existing ? attendanceFromRow(existing, this.attendanceConfig) : absentRecord(employee, date);
     });
   }
 
@@ -305,6 +408,15 @@ export class PrismaRepository {
     };
   }
 
+  async attendanceSettings() {
+    return this.attendanceConfig;
+  }
+
+  async updateAttendanceSettings(settings: AttendanceSettings) {
+    this.attendanceConfig = settings;
+    return this.attendanceConfig;
+  }
+
   async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
@@ -313,7 +425,7 @@ export class PrismaRepository {
       include: { employee: true },
       orderBy: { date: "asc" }
     });
-    const records = rows.map(attendanceFromRow);
+    const records = rows.map((row) => attendanceFromRow(row, this.attendanceConfig));
     const totalWorkingDays = workingDaysInMonth(month).length;
     const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
     return { employee: employeeFromDb(employee), month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
@@ -326,21 +438,23 @@ export class PrismaRepository {
     if (existing?.checkInTime) throw new Error("Employee already checked in today");
     const row = await this.prisma.attendance.upsert({
       where: { employeeId_date: { employeeId, date } },
-      update: { checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
-      create: { employeeId, date, checkInTime, status: (isLate(checkInTime) ? "LATE" : "PRESENT") as any },
+      update: { checkInTime, status: (isLate(checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") as any },
+      create: { employeeId, date, checkInTime, status: (isLate(checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") as any },
       include: { employee: true }
     });
-    return attendanceFromRow(row);
+    await this.recalculateExistingPayrollForEmployee(employeeId, date);
+    return attendanceFromRow(row, this.attendanceConfig);
   }
 
   async checkOut(employeeId: string, date = todayKey(), checkOutTime = new Date().toISOString()) {
     const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
     const row = await this.prisma.attendance.update({
       where: { employeeId_date: { employeeId, date } },
-      data: { checkOutTime, totalHours: totalHours(existing?.checkInTime, checkOutTime) },
+      data: { checkOutTime, totalHours: totalHours(existing?.checkInTime, checkOutTime), overtimeHours: overtimeHours(checkOutTime, date, this.attendanceConfig) },
       include: { employee: true }
     }).catch(() => null);
-    return row ? attendanceFromRow(row) : null;
+    if (row) await this.recalculateExistingPayrollForEmployee(employeeId, date);
+    return row ? attendanceFromRow(row, this.attendanceConfig) : null;
   }
 
   async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
@@ -353,7 +467,8 @@ export class PrismaRepository {
         status: attendanceToDb[input.status] as any,
         checkInTime: input.status === "Absent" ? null : input.checkInTime,
         checkOutTime: input.status === "Absent" ? null : input.checkOutTime,
-        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime)
+        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: input.status === "Absent" ? null : overtimeHours(input.checkOutTime, date, this.attendanceConfig)
       },
       create: {
         employeeId: input.employeeId,
@@ -361,11 +476,225 @@ export class PrismaRepository {
         status: attendanceToDb[input.status] as any,
         checkInTime: input.checkInTime,
         checkOutTime: input.checkOutTime,
-        totalHours: totalHours(input.checkInTime, input.checkOutTime)
+        totalHours: totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
       },
       include: { employee: true }
     });
-    return attendanceFromRow(row);
+    await this.recalculateExistingPayrollForEmployee(input.employeeId, date);
+    return attendanceFromRow(row, this.attendanceConfig);
+  }
+
+  async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: input.employeeId } });
+    if (!employee) return null;
+    const status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") : "ABSENT";
+    const row = await this.prisma.attendance.upsert({
+      where: { employeeId_date: { employeeId: input.employeeId, date: input.date } },
+      update: {
+        checkInTime: input.checkInTime ?? null,
+        checkOutTime: input.checkOutTime ?? null,
+        status: status as any,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime) ?? null,
+        overtimeHours: overtimeHours(input.checkOutTime, input.date, this.attendanceConfig) ?? null
+      },
+      create: {
+        employeeId: input.employeeId,
+        date: input.date,
+        checkInTime: input.checkInTime,
+        checkOutTime: input.checkOutTime,
+        status: status as any,
+        totalHours: totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: overtimeHours(input.checkOutTime, input.date, this.attendanceConfig)
+      },
+      include: { employee: true }
+    });
+    await this.recalculateExistingPayrollForEmployee(input.employeeId, input.date);
+    return attendanceFromRow(row, this.attendanceConfig);
+  }
+
+  async payrollSettings() {
+    return this.payrollSettingsConfig;
+  }
+
+  async updatePayrollSettings(settings: PayrollSettings) {
+    this.payrollSettingsConfig = settings;
+    return this.payrollSettingsConfig;
+  }
+
+  async generatePayroll(month: number, year: number) {
+    const employees = (await this.prisma.employee.findMany({ where: { archivedAt: null } })).map(employeeFromDb);
+    const records = [];
+    for (const employee of employees) {
+      records.push(await this.upsertPayrollForEmployee(employee, month, year));
+    }
+    return records;
+  }
+
+  async listPayrolls(month?: number, year?: number) {
+    const rows = await this.prisma.payroll.findMany({
+      where: { payrollMonth: month, payrollYear: year },
+      include: { employee: true },
+      orderBy: { updatedAt: "desc" }
+    });
+    return rows.map(payrollFromRow);
+  }
+
+  async payrollDashboard(month: number, year: number): Promise<PayrollDashboard> {
+    const history = await this.listPayrolls(month, year);
+    return {
+      awaitingPayment: history.filter((payroll) => payroll.paymentStatus !== "Paid").length,
+      totalPayroll: history.reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalPaid: history.filter((payroll) => payroll.paymentStatus === "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalUnpaid: history.filter((payroll) => payroll.paymentStatus !== "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      history
+    };
+  }
+
+  async payrollReports(month: number, year: number): Promise<PayrollReports> {
+    const monthlyPayroll = await this.listPayrolls(month, year);
+    const departments = Array.from(new Set(monthlyPayroll.map((payroll) => payroll.employee.department)));
+    return {
+      monthlyPayroll,
+      payrollByDepartment: departments.map((department) => {
+        const rows = monthlyPayroll.filter((payroll) => payroll.employee.department === department);
+        return { department, employees: rows.length, total: rows.reduce((sum, payroll) => sum + payroll.payableSalary, 0) };
+      }),
+      attendanceSummary: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, presentDays: payroll.presentDays, absentDays: payroll.absentDays, lateDays: payroll.lateDays })),
+      overtimeReport: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, overtimeHours: payroll.overtimeHours, overtimePay: payroll.overtimePay })),
+      salaryDeductions: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, deductions: payroll.deductions, tax: payroll.tax })),
+      paymentHistory: monthlyPayroll.filter((payroll) => payroll.paymentStatus === "Paid")
+    };
+  }
+
+  async getPayroll(payrollId: string) {
+    const row = await this.prisma.payroll.findUnique({ where: { id: payrollId }, include: { employee: true } });
+    return row ? payrollFromRow(row) : null;
+  }
+
+  async updatePayroll(payrollId: string, input: { bonus?: number; allowance?: number; deductions?: number; notes?: string }) {
+    const existing = await this.getPayroll(payrollId);
+    if (!existing) return null;
+    const updated = await this.calculatePayroll(existing.employee, existing.payrollMonth, existing.payrollYear, {
+      id: existing.id,
+      bonus: input.bonus ?? existing.bonus,
+      allowance: input.allowance ?? existing.allowance,
+      deductions: input.deductions ?? existing.deductions,
+      paymentStatus: existing.paymentStatus,
+      paymentDate: existing.paymentDate,
+      paymentMethod: existing.paymentMethod,
+      notes: input.notes ?? existing.notes,
+      createdAt: existing.createdAt
+    });
+    await this.savePayroll(updated, "updated", "Payroll adjustments updated");
+    return this.getPayroll(payrollId);
+  }
+
+  async markPayrollPaid(payrollId: string, input: { paymentMethod?: PayrollRecord["paymentMethod"]; paymentDate?: string }) {
+    const row = await this.prisma.payroll.update({
+      where: { id: payrollId },
+      data: {
+        paymentStatus: "PAID",
+        paymentMethod: (input.paymentMethod ? methodToDb[input.paymentMethod] : "CASH") as any,
+        paymentDate: input.paymentDate ? new Date(input.paymentDate) : new Date()
+      },
+      include: { employee: true }
+    }).catch(() => null);
+    if (!row) return null;
+    await this.auditPayroll(row.id, "paid", `Paid via ${row.paymentMethod}`);
+    return payrollFromRow(row);
+  }
+
+  async payrollPayslip(payrollId: string) {
+    return this.getPayroll(payrollId);
+  }
+
+  private async upsertPayrollForEmployee(employee: Employee, month: number, year: number) {
+    const existing = await this.prisma.payroll.findUnique({ where: { employeeId_payrollMonth_payrollYear: { employeeId: employee.id, payrollMonth: month, payrollYear: year } }, include: { employee: true } });
+    const existingPayroll = existing ? payrollFromRow(existing) : undefined;
+    const payroll = await this.calculatePayroll(employee, month, year, existingPayroll ? { ...existingPayroll, deductions: undefined } : undefined);
+    await this.savePayroll(payroll, existing ? "recalculated" : "generated", existing ? "Payroll recalculated" : "Payroll generated");
+    return (await this.getPayroll(payroll.id))!;
+  }
+
+  private async calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
+    const key = monthKey(month, year);
+    const rows = await this.prisma.attendance.findMany({ where: { employeeId: employee.id, date: { startsWith: key } }, include: { employee: true } });
+    const attendance = rows.map((row) => attendanceFromRow(row, this.attendanceConfig));
+    return calculatePayrollRecord({
+      id: existing?.id ?? crypto.randomUUID(),
+      employee,
+      payrollMonth: month,
+      payrollYear: year,
+      attendance,
+      settings: this.payrollSettingsConfig,
+      bonus: existing?.bonus,
+      allowance: existing?.allowance,
+      extraDeductions: existing?.deductions,
+      paymentStatus: existing?.paymentStatus,
+      paymentDate: existing?.paymentDate,
+      paymentMethod: existing?.paymentMethod,
+      notes: existing?.notes,
+      createdAt: existing?.createdAt
+    });
+  }
+
+  private async savePayroll(payroll: PayrollRecord, action: string, details: string) {
+    await this.prisma.payroll.upsert({
+      where: { employeeId_payrollMonth_payrollYear: { employeeId: payroll.employeeId, payrollMonth: payroll.payrollMonth, payrollYear: payroll.payrollYear } },
+      update: {
+        basicSalary: payroll.basicSalary,
+        overtimeHours: payroll.overtimeHours,
+        overtimePay: payroll.overtimePay,
+        bonus: payroll.bonus,
+        allowance: payroll.allowance,
+        deductions: payroll.deductions,
+        tax: payroll.tax,
+        absentDays: payroll.absentDays,
+        lateDays: payroll.lateDays,
+        workingDays: payroll.workingDays,
+        payableSalary: payroll.payableSalary,
+        paymentStatus: payroll.paymentStatus === "Paid" ? "PAID" : "PENDING",
+        paymentDate: payroll.paymentDate ? new Date(payroll.paymentDate) : null,
+        paymentMethod: payroll.paymentMethod ? methodToDb[payroll.paymentMethod] as any : null,
+        notes: payroll.notes
+      },
+      create: {
+        id: payroll.id,
+        employeeId: payroll.employeeId,
+        payrollMonth: payroll.payrollMonth,
+        payrollYear: payroll.payrollYear,
+        basicSalary: payroll.basicSalary,
+        overtimeHours: payroll.overtimeHours,
+        overtimePay: payroll.overtimePay,
+        bonus: payroll.bonus,
+        allowance: payroll.allowance,
+        deductions: payroll.deductions,
+        tax: payroll.tax,
+        absentDays: payroll.absentDays,
+        lateDays: payroll.lateDays,
+        workingDays: payroll.workingDays,
+        payableSalary: payroll.payableSalary,
+        paymentStatus: payroll.paymentStatus === "Paid" ? "PAID" : "PENDING",
+        paymentDate: payroll.paymentDate ? new Date(payroll.paymentDate) : null,
+        paymentMethod: payroll.paymentMethod ? methodToDb[payroll.paymentMethod] as any : null,
+        notes: payroll.notes
+      }
+    });
+    await this.auditPayroll(payroll.id, action, details);
+  }
+
+  private async recalculateExistingPayrollForEmployee(employeeId: string, date: string) {
+    const [year, month] = date.split("-").map(Number);
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    const existing = await this.prisma.payroll.findUnique({ where: { employeeId_payrollMonth_payrollYear: { employeeId, payrollMonth: month, payrollYear: year } } });
+    if (employee && existing) {
+      await this.upsertPayrollForEmployee(employeeFromDb(employee), month, year);
+    }
+  }
+
+  private async auditPayroll(payrollId: string, action: string, details?: string) {
+    await this.prisma.payrollAuditLog.create({ data: { payrollId, action, details } }).catch(() => undefined);
   }
 
   async listProducts() {
@@ -413,6 +742,22 @@ export class PrismaRepository {
       }
     });
     return { id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) };
+  }
+
+  async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      const material = await tx.rawMaterial.findUnique({ where: { id: rawMaterialId } });
+      if (!material) return null;
+      if (Number(material.quantity) < input.quantity) throw new Error("Insufficient raw material stock");
+      await tx.rawMaterial.update({ where: { id: rawMaterialId }, data: { quantity: Number(material.quantity) - input.quantity } });
+      const movement = await tx.rawMaterialMovement.create({ data: { rawMaterialId, type: "Used", quantity: input.quantity, unit: material.unit, reference: input.reference, note: input.note }, include: { rawMaterial: true } });
+      return { id: movement.id, rawMaterialId, rawMaterialName: movement.rawMaterial.name, type: "Used", quantity: Number(movement.quantity), unit: movement.unit, reference: movement.reference ?? undefined, note: movement.note ?? undefined, createdAt: movement.createdAt.toISOString() } satisfies RawMaterialMovement;
+    });
+  }
+
+  async listRawMaterialMovements() {
+    const rows = await this.prisma.rawMaterialMovement.findMany({ include: { rawMaterial: true }, orderBy: { createdAt: "desc" } });
+    return rows.map((movement): RawMaterialMovement => ({ id: movement.id, rawMaterialId: movement.rawMaterialId, rawMaterialName: movement.rawMaterial.name, type: movement.type as RawMaterialMovement["type"], quantity: Number(movement.quantity), unit: movement.unit, reference: movement.reference ?? undefined, note: movement.note ?? undefined, createdAt: movement.createdAt.toISOString() }));
   }
 
   async listProduction() {

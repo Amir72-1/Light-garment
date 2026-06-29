@@ -3,18 +3,25 @@ import QRCode from "qrcode";
 import type {
   AttendanceRecord,
   AttendanceStats,
+  AttendanceSettings,
   DashboardMetrics,
   Employee,
   EmployeeAttendanceProfile,
   InventoryMovement,
   Paginated,
+  PayrollDashboard,
+  PayrollRecord,
+  PayrollReports,
+  PayrollSettings,
   Product,
   ProductionStage,
   RawMaterial,
+  RawMaterialMovement,
   RoleName,
   Sale,
   SaleItem
 } from "../shared/types.js";
+import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 
 type UserRecord = {
   id: string;
@@ -22,6 +29,9 @@ type UserRecord = {
   email: string;
   passwordHash: string;
   role: RoleName;
+  isActive: boolean;
+  lastSeenAt?: string;
+  createdAt: string;
 };
 
 type ListQuery = {
@@ -39,7 +49,10 @@ type EmployeeInput = Omit<Employee, "id" | "employeeCode"> & { employeeCode?: st
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const todayKey = () => new Date().toISOString().slice(0, 10);
-const startTime = process.env.ATTENDANCE_START_TIME || "09:00";
+const defaultAttendanceSettings: AttendanceSettings = {
+  startTime: process.env.ATTENDANCE_START_TIME || "09:00",
+  endTime: process.env.ATTENDANCE_END_TIME || "17:00"
+};
 
 function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
   const safePage = Math.max(1, page);
@@ -48,7 +61,7 @@ function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
   return { data: items.slice(start, start + safePageSize), page: safePage, pageSize: safePageSize, total: items.length };
 }
 
-function isLate(checkInTime: string) {
+function isLate(checkInTime: string, startTime: string) {
   const time = new Date(checkInTime).toTimeString().slice(0, 5);
   return time > startTime;
 }
@@ -57,6 +70,37 @@ function totalHours(checkInTime?: string, checkOutTime?: string) {
   if (!checkInTime || !checkOutTime) return undefined;
   const hours = (new Date(checkOutTime).getTime() - new Date(checkInTime).getTime()) / 3_600_000;
   return Math.max(0, Math.round(hours * 100) / 100);
+}
+
+function dateTimeFor(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function shouldDefaultCheckout(date: string, endTime: string) {
+  return new Date() >= dateTimeFor(date, endTime);
+}
+
+function effectiveCheckOutTime(record: Pick<AttendanceRecord, "date" | "checkInTime" | "checkOutTime">, settings: AttendanceSettings) {
+  if (record.checkOutTime || !record.checkInTime || !shouldDefaultCheckout(record.date, settings.endTime)) {
+    return record.checkOutTime;
+  }
+  return dateTimeFor(record.date, settings.endTime).toISOString();
+}
+
+function overtimeHours(checkOutTime: string | undefined, date: string, settings: AttendanceSettings) {
+  if (!checkOutTime) return undefined;
+  const overtime = (new Date(checkOutTime).getTime() - dateTimeFor(date, settings.endTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(overtime * 100) / 100);
+}
+
+function applyAttendanceCalculations(record: AttendanceRecord, settings: AttendanceSettings): AttendanceRecord {
+  const checkOutTime = effectiveCheckOutTime(record, settings);
+  return {
+    ...record,
+    checkOutTime,
+    totalHours: totalHours(record.checkInTime, checkOutTime),
+    overtimeHours: overtimeHours(checkOutTime, record.date, settings)
+  };
 }
 
 function workingDaysInMonth(month: string) {
@@ -72,8 +116,13 @@ export class DemoRepository {
   private products: Product[] = [];
   private inventory: InventoryMovement[] = [];
   private rawMaterials: RawMaterial[] = [];
+  private rawMaterialMovements: RawMaterialMovement[] = [];
   private sales: Sale[] = [];
+  private payrolls: PayrollRecord[] = [];
+  private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
+  private payrollAudit: Array<{ payrollId: string; action: string; details?: string; at: string }> = [];
   private production: ProductionStage[] = [];
+  private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
   private company = {
     name: "Light Garment Manufacturing PLC",
@@ -92,11 +141,11 @@ export class DemoRepository {
   private async seed() {
     const passwordHash = await bcrypt.hash("Password123!", 12);
     this.users = [
-      { id: "usr_owner", name: "Light Garment Owner", email: "owner@lightgarment.example", passwordHash, role: "Owner" },
-      { id: "usr_manager", name: "Production Manager", email: "manager@lightgarment.example", passwordHash, role: "Manager" },
-      { id: "usr_store", name: "Store Keeper", email: "store@lightgarment.example", passwordHash, role: "Storekeeper" },
-      { id: "usr_sales", name: "Sales Cashier", email: "sales@lightgarment.example", passwordHash, role: "Salesperson" },
-      { id: "usr_hr", name: "HR Administrator", email: "hr@lightgarment.example", passwordHash, role: "HR/Admin" }
+      { id: "usr_owner", name: "Light Garment Owner", email: "owner@lightgarment.example", passwordHash, role: "Owner", isActive: true, createdAt: nowIso() },
+      { id: "usr_manager", name: "Production Manager", email: "manager@lightgarment.example", passwordHash, role: "Manager", isActive: true, createdAt: nowIso() },
+      { id: "usr_store", name: "Store Keeper", email: "store@lightgarment.example", passwordHash, role: "Storekeeper", isActive: true, createdAt: nowIso() },
+      { id: "usr_sales", name: "Sales Cashier", email: "sales@lightgarment.example", passwordHash, role: "Salesperson", isActive: true, createdAt: nowIso() },
+      { id: "usr_hr", name: "HR Administrator", email: "hr@lightgarment.example", passwordHash, role: "HR/Admin", isActive: true, createdAt: nowIso() }
     ];
 
     this.employees = [
@@ -215,10 +264,48 @@ export class DemoRepository {
 
   async authenticate(email: string, password: string) {
     const user = this.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) {
       return null;
     }
+    user.lastSeenAt = nowIso();
     return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
+  async listUsers() {
+    const now = Date.now();
+    return this.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      lastSeenAt: user.lastSeenAt,
+      isOnline: Boolean(user.lastSeenAt && now - new Date(user.lastSeenAt).getTime() < 15 * 60_000),
+      createdAt: user.createdAt
+    }));
+  }
+
+  async createUser(input: { name: string; email: string; password: string; role: RoleName }) {
+    if (this.users.some((user) => user.email.toLowerCase() === input.email.toLowerCase())) throw new Error("User email already exists");
+    const user: UserRecord = { id: id("usr"), name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), role: input.role, isActive: true, createdAt: nowIso() };
+    this.users.unshift(user);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async updateUser(userId: string, input: { name?: string; role?: RoleName; isActive?: boolean; password?: string }) {
+    const user = this.users.find((item) => item.id === userId);
+    if (!user) return null;
+    user.name = input.name ?? user.name;
+    user.role = input.role ?? user.role;
+    user.isActive = input.isActive ?? user.isActive;
+    if (input.password) user.passwordHash = await bcrypt.hash(input.password, 12);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async deleteUser(userId: string) {
+    const before = this.users.length;
+    this.users = this.users.filter((item) => item.id !== userId);
+    return this.users.length < before;
   }
 
   async resetPassword(email: string) {
@@ -235,7 +322,7 @@ export class DemoRepository {
     const totalInventory = this.products.reduce((sum, product) => sum + product.quantity, 0);
     const revenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);
     return {
-      totalEmployees: this.employees.length,
+      totalEmployees: this.employees.filter((employee) => !employee.archivedAt).length,
       totalInventory,
       totalSales: this.sales.length,
       revenue,
@@ -248,7 +335,7 @@ export class DemoRepository {
   }
 
   async listEmployees(query: ListQuery) {
-    let rows = [...this.employees];
+    let rows = this.employees.filter((employee) => !employee.archivedAt);
     if (query.search) {
       const search = query.search.toLowerCase();
       rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
@@ -266,6 +353,12 @@ export class DemoRepository {
 
   async getEmployee(employeeId: string) {
     return this.employees.find((employee) => employee.id === employeeId) ?? null;
+  }
+
+  async listArchivedEmployees() {
+    return this.employees
+      .filter((employee) => employee.archivedAt)
+      .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)));
   }
 
   async createEmployee(input: EmployeeInput) {
@@ -287,9 +380,9 @@ export class DemoRepository {
   async deleteEmployee(employeeId: string) {
     const employee = await this.getEmployee(employeeId);
     if (!employee) return false;
-    this.employees = this.employees.filter((item) => item.id !== employeeId);
-    this.attendance = this.attendance.filter((item) => item.employeeId !== employeeId);
-    this.log(`Employee ${employee.employeeCode} deleted`);
+    employee.archivedAt = nowIso();
+    employee.status = "Inactive";
+    this.log(`Employee ${employee.employeeCode} archived`);
     return true;
   }
 
@@ -311,11 +404,22 @@ export class DemoRepository {
     };
   }
 
+  async attendanceSettings() {
+    return this.attendanceConfig;
+  }
+
+  async updateAttendanceSettings(settings: AttendanceSettings) {
+    this.attendanceConfig = settings;
+    this.log(`Attendance schedule updated to ${settings.startTime}-${settings.endTime}`);
+    return this.attendanceConfig;
+  }
+
   async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
     const employee = await this.getEmployee(employeeId);
     if (!employee) return null;
     const records = this.attendance
       .filter((item) => item.employeeId === employeeId && item.date.startsWith(month))
+      .map((item) => applyAttendanceCalculations(item, this.attendanceConfig))
       .sort((left, right) => left.date.localeCompare(right.date));
     const totalWorkingDays = workingDaysInMonth(month).length;
     const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
@@ -329,7 +433,7 @@ export class DemoRepository {
     if (record?.checkInTime) {
       throw new Error("Employee already checked in today");
     }
-    const status = isLate(checkInTime) ? "Late" : "Present";
+    const status = isLate(checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present";
     if (!record) {
       record = this.recordForEmployee(employee, date, { checkInTime, status });
       this.attendance.unshift(record);
@@ -338,6 +442,7 @@ export class DemoRepository {
       record.status = status;
     }
     this.log(`${employee.fullName} checked in`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
     return record;
   }
 
@@ -346,7 +451,9 @@ export class DemoRepository {
     if (!record) return null;
     record.checkOutTime = checkOutTime;
     record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     this.log(`${record.employeeName} checked out`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
     return record;
   }
 
@@ -363,15 +470,35 @@ export class DemoRepository {
       record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
       record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
       record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+      record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     }
     this.log(`${employee.fullName} attendance marked ${record.status}`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, date);
+    return record;
+  }
+
+  async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.getEmployee(input.employeeId);
+    if (!employee) return null;
+    let record = this.attendance.find((item) => item.employeeId === input.employeeId && item.date === input.date);
+    if (!record) {
+      record = this.recordForEmployee(employee, input.date, { status: "Absent" });
+      this.attendance.unshift(record);
+    }
+    record.checkInTime = input.checkInTime;
+    record.checkOutTime = input.checkOutTime;
+    record.status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present") : "Absent";
+    record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
+    this.log(`${employee.fullName} attendance times updated`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, input.date);
     return record;
   }
 
   private attendanceForDate(date: string) {
     return this.employees.map((employee) => {
       const existing = this.attendance.find((item) => item.employeeId === employee.id && item.date === date);
-      return existing ?? this.recordForEmployee(employee, date, { status: "Absent" });
+      return existing ? applyAttendanceCalculations(existing, this.attendanceConfig) : this.recordForEmployee(employee, date, { status: "Absent" });
     }).sort((left, right) => left.employeeName.localeCompare(right.employeeName));
   }
 
@@ -387,8 +514,155 @@ export class DemoRepository {
       checkInTime: input.checkInTime,
       checkOutTime: input.checkOutTime,
       status: input.status || "Absent",
-      totalHours: totalHours(input.checkInTime, input.checkOutTime)
+      totalHours: totalHours(input.checkInTime, input.checkOutTime),
+      overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
     };
+  }
+
+  async payrollSettings() {
+    return this.payrollSettingsConfig;
+  }
+
+  async updatePayrollSettings(settings: PayrollSettings) {
+    this.payrollSettingsConfig = settings;
+    this.log("Payroll settings updated");
+    return this.payrollSettingsConfig;
+  }
+
+  async generatePayroll(month: number, year: number) {
+    const employees = this.employees.filter((employee) => !employee.archivedAt);
+    const records = employees.map((employee) => this.upsertPayrollForEmployee(employee, month, year));
+    this.log(`Payroll generated for ${month}/${year}`);
+    return records;
+  }
+
+  async listPayrolls(month?: number, year?: number) {
+    return this.payrolls
+      .filter((payroll) => (month ? payroll.payrollMonth === month : true) && (year ? payroll.payrollYear === year : true))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async payrollDashboard(month: number, year: number): Promise<PayrollDashboard> {
+    const history = await this.listPayrolls(month, year);
+    return {
+      awaitingPayment: history.filter((payroll) => payroll.paymentStatus !== "Paid").length,
+      totalPayroll: history.reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalPaid: history.filter((payroll) => payroll.paymentStatus === "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalUnpaid: history.filter((payroll) => payroll.paymentStatus !== "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      history
+    };
+  }
+
+  async payrollReports(month: number, year: number): Promise<PayrollReports> {
+    const monthlyPayroll = await this.listPayrolls(month, year);
+    const departments = Array.from(new Set(monthlyPayroll.map((payroll) => payroll.employee.department)));
+    return {
+      monthlyPayroll,
+      payrollByDepartment: departments.map((department) => {
+        const rows = monthlyPayroll.filter((payroll) => payroll.employee.department === department);
+        return { department, employees: rows.length, total: rows.reduce((sum, payroll) => sum + payroll.payableSalary, 0) };
+      }),
+      attendanceSummary: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, presentDays: payroll.presentDays, absentDays: payroll.absentDays, lateDays: payroll.lateDays })),
+      overtimeReport: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, overtimeHours: payroll.overtimeHours, overtimePay: payroll.overtimePay })),
+      salaryDeductions: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, deductions: payroll.deductions, tax: payroll.tax })),
+      paymentHistory: monthlyPayroll.filter((payroll) => payroll.paymentStatus === "Paid")
+    };
+  }
+
+  async getPayroll(payrollId: string) {
+    return this.payrolls.find((payroll) => payroll.id === payrollId) ?? null;
+  }
+
+  async updatePayroll(payrollId: string, input: { bonus?: number; allowance?: number; deductions?: number; notes?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    const updated = this.calculatePayroll(payroll.employee, payroll.payrollMonth, payroll.payrollYear, {
+      id: payroll.id,
+      bonus: input.bonus ?? payroll.bonus,
+      allowance: input.allowance ?? payroll.allowance,
+      deductions: input.deductions ?? payroll.deductions,
+      paymentStatus: payroll.paymentStatus,
+      paymentDate: payroll.paymentDate,
+      paymentMethod: payroll.paymentMethod,
+      notes: input.notes ?? payroll.notes,
+      createdAt: payroll.createdAt
+    });
+    this.replacePayroll(updated, "updated", "Payroll adjustments updated");
+    return updated;
+  }
+
+  async markPayrollPaid(payrollId: string, input: { paymentMethod?: PayrollRecord["paymentMethod"]; paymentDate?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    payroll.paymentStatus = "Paid";
+    payroll.paymentMethod = input.paymentMethod ?? "Cash";
+    payroll.paymentDate = input.paymentDate ?? new Date().toISOString();
+    payroll.updatedAt = new Date().toISOString();
+    this.auditPayroll(payroll.id, "paid", `Paid via ${payroll.paymentMethod}`);
+    this.log(`Payroll ${payroll.employee.employeeCode} marked paid`);
+    return payroll;
+  }
+
+  async payrollPayslip(payrollId: string) {
+    return this.getPayroll(payrollId);
+  }
+
+  private upsertPayrollForEmployee(employee: Employee, month: number, year: number) {
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employee.id && payroll.payrollMonth === month && payroll.payrollYear === year);
+    const payroll = this.calculatePayroll(employee, month, year, existing ? {
+      id: existing.id,
+      bonus: existing.bonus,
+      allowance: existing.allowance,
+      paymentStatus: existing.paymentStatus,
+      paymentDate: existing.paymentDate,
+      paymentMethod: existing.paymentMethod,
+      notes: existing.notes,
+      createdAt: existing.createdAt
+    } : undefined);
+    this.replacePayroll(payroll, existing ? "recalculated" : "generated", existing ? "Payroll recalculated" : "Payroll generated");
+    return payroll;
+  }
+
+  private calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
+    const key = monthKey(month, year);
+    const attendance = this.attendance
+      .filter((record) => record.employeeId === employee.id && record.date.startsWith(key))
+      .map((record) => applyAttendanceCalculations(record, this.attendanceConfig));
+    return calculatePayrollRecord({
+      id: existing?.id ?? id("payroll"),
+      employee,
+      payrollMonth: month,
+      payrollYear: year,
+      attendance,
+      settings: this.payrollSettingsConfig,
+      bonus: existing?.bonus,
+      allowance: existing?.allowance,
+      extraDeductions: existing?.deductions,
+      paymentStatus: existing?.paymentStatus,
+      paymentDate: existing?.paymentDate,
+      paymentMethod: existing?.paymentMethod,
+      notes: existing?.notes,
+      createdAt: existing?.createdAt,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  private replacePayroll(payroll: PayrollRecord, action: string, details: string) {
+    this.payrolls = [payroll, ...this.payrolls.filter((item) => item.id !== payroll.id)];
+    this.auditPayroll(payroll.id, action, details);
+  }
+
+  private recalculateExistingPayrollForEmployee(employeeId: string, date: string) {
+    const employee = this.employees.find((item) => item.id === employeeId);
+    const [year, month] = date.split("-").map(Number);
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employeeId && payroll.payrollMonth === month && payroll.payrollYear === year);
+    if (employee && existing) {
+      this.upsertPayrollForEmployee(employee, month, year);
+    }
+  }
+
+  private auditPayroll(payrollId: string, action: string, details?: string) {
+    this.payrollAudit.unshift({ payrollId, action, details, at: new Date().toISOString() });
   }
 
   async listProducts() {
@@ -429,6 +703,21 @@ export class DemoRepository {
     this.rawMaterials.unshift(material);
     this.log(`Raw material ${material.name} registered`);
     return material;
+  }
+
+  async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {
+    const material = this.rawMaterials.find((item) => item.id === rawMaterialId);
+    if (!material) return null;
+    if (material.quantity < input.quantity) throw new Error("Insufficient raw material stock");
+    material.quantity = Math.max(0, material.quantity - input.quantity);
+    const movement: RawMaterialMovement = { id: id("rawmove"), rawMaterialId, rawMaterialName: material.name, type: "Used", quantity: input.quantity, unit: material.unit, reference: input.reference, note: input.note, createdAt: nowIso() };
+    this.rawMaterialMovements.unshift(movement);
+    this.log(`Raw material used: ${material.name}`);
+    return movement;
+  }
+
+  async listRawMaterialMovements() {
+    return this.rawMaterialMovements;
   }
 
   async listProduction() {

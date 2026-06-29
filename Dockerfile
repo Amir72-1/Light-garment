@@ -18,4 +18,4 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-client ./dist-client
 COPY --from=build /app/prisma ./prisma
 EXPOSE 4000
-CMD ["node", "dist/server/server/server.js"]
+CMD ["npm", "run", "start:deploy"]

@@ -15,6 +15,17 @@ export interface UserSession {
   };
 }
 
+export interface ManagedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: RoleName;
+  isActive: boolean;
+  lastSeenAt?: string;
+  isOnline: boolean;
+  createdAt: string;
+}
+
 export interface Employee {
   id: string;
   employeeCode: string;
@@ -32,6 +43,7 @@ export interface Employee {
   employmentType: EmploymentType;
   hireDate: string;
   status: EmployeeStatus;
+  archivedAt?: string;
 }
 
 export interface AttendanceRecord {
@@ -46,6 +58,7 @@ export interface AttendanceRecord {
   checkOutTime?: string;
   status: "Present" | "Absent" | "Late";
   totalHours?: number;
+  overtimeHours?: number;
 }
 
 export interface AttendanceStats {
@@ -53,6 +66,11 @@ export interface AttendanceStats {
   absent: number;
   late: number;
   date: string;
+}
+
+export interface AttendanceSettings {
+  startTime: string;
+  endTime: string;
 }
 
 export interface EmployeeAttendanceProfile {
@@ -90,6 +108,18 @@ export interface InventoryMovement {
   createdAt: string;
 }
 
+export interface RawMaterialMovement {
+  id: string;
+  rawMaterialId: string;
+  rawMaterialName: string;
+  type: "Stock in" | "Used" | "Adjustment";
+  quantity: number;
+  unit: string;
+  reference?: string;
+  note?: string;
+  createdAt: string;
+}
+
 export interface RawMaterial {
   id: string;
   name: string;
@@ -121,6 +151,65 @@ export interface Sale {
   paymentMethod: "Cash" | "Card" | "Bank transfer" | "Mobile money";
   items: SaleItem[];
   createdAt: string;
+}
+
+export type PayrollPaymentStatus = "Pending" | "Paid";
+export type PayrollPaymentMethod = "Cash" | "Bank transfer" | "Mobile money";
+
+export interface PayrollSettings {
+  standardHoursPerDay: number;
+  workingDaysPerMonth: number;
+  gracePeriodMinutes: number;
+  overtimeRatePerHour: number;
+  latePenaltyEnabled: boolean;
+  latePenaltyAmount: number;
+  absenceDeductionEnabled: boolean;
+  taxPercentage?: number;
+  defaultAllowance: number;
+  defaultBonus: number;
+}
+
+export interface PayrollRecord {
+  id: string;
+  employeeId: string;
+  employee: Employee;
+  payrollMonth: number;
+  payrollYear: number;
+  basicSalary: number;
+  overtimeHours: number;
+  overtimePay: number;
+  bonus: number;
+  allowance: number;
+  deductions: number;
+  tax: number;
+  absentDays: number;
+  lateDays: number;
+  presentDays: number;
+  workingDays: number;
+  payableSalary: number;
+  paymentStatus: PayrollPaymentStatus;
+  paymentDate?: string;
+  paymentMethod?: PayrollPaymentMethod;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayrollDashboard {
+  awaitingPayment: number;
+  totalPayroll: number;
+  totalPaid: number;
+  totalUnpaid: number;
+  history: PayrollRecord[];
+}
+
+export interface PayrollReports {
+  monthlyPayroll: PayrollRecord[];
+  payrollByDepartment: Array<{ department: Department; total: number; employees: number }>;
+  attendanceSummary: Array<{ employeeName: string; presentDays: number; absentDays: number; lateDays: number }>;
+  overtimeReport: Array<{ employeeName: string; overtimeHours: number; overtimePay: number }>;
+  salaryDeductions: Array<{ employeeName: string; deductions: number; tax: number }>;
+  paymentHistory: PayrollRecord[];
 }
 
 export interface ProductionStage {

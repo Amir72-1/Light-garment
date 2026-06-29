@@ -103,6 +103,26 @@ const rawMaterialSchema = z.object({
   unitCost: z.coerce.number().nonnegative()
 });
 
+const rawMaterialUseSchema = z.object({
+  quantity: z.coerce.number().positive(),
+  reference: z.string().optional(),
+  note: z.string().optional()
+});
+
+const userCreateSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(8),
+  role: z.enum(["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"])
+});
+
+const userUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  role: z.enum(["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"]).optional(),
+  isActive: z.boolean().optional(),
+  password: z.string().min(8).optional().or(z.literal(""))
+});
+
 const productionSchema = z.object({
   status: z.enum(["Pending", "In progress", "Completed", "Blocked"]).optional(),
   assignedTo: z.string().optional(),
@@ -123,6 +143,48 @@ const manualAttendanceSchema = z.object({
   status: z.enum(["Present", "Absent", "Late"]),
   checkInTime: z.string().datetime().optional().or(z.literal("")),
   checkOutTime: z.string().datetime().optional().or(z.literal(""))
+});
+
+const attendanceTimeEditSchema = z.object({
+  employeeId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  checkInTime: z.string().datetime().optional().or(z.literal("")),
+  checkOutTime: z.string().datetime().optional().or(z.literal(""))
+});
+
+const attendanceSettingsSchema = z.object({
+  startTime: z.string().regex(/^\d{2}:\d{2}$/),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/)
+});
+
+const payrollPeriodSchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100)
+});
+
+const payrollSettingsSchema = z.object({
+  standardHoursPerDay: z.coerce.number().positive(),
+  workingDaysPerMonth: z.coerce.number().int().positive(),
+  gracePeriodMinutes: z.coerce.number().int().nonnegative(),
+  overtimeRatePerHour: z.coerce.number().nonnegative(),
+  latePenaltyEnabled: z.boolean(),
+  latePenaltyAmount: z.coerce.number().nonnegative(),
+  absenceDeductionEnabled: z.boolean(),
+  taxPercentage: z.coerce.number().nonnegative().optional(),
+  defaultAllowance: z.coerce.number().nonnegative(),
+  defaultBonus: z.coerce.number().nonnegative()
+});
+
+const payrollAdjustmentSchema = z.object({
+  bonus: z.coerce.number().nonnegative().optional(),
+  allowance: z.coerce.number().nonnegative().optional(),
+  deductions: z.coerce.number().nonnegative().optional(),
+  notes: z.string().optional()
+});
+
+const payrollPaymentSchema = z.object({
+  paymentMethod: z.enum(["Cash", "Bank transfer", "Mobile money"]).optional(),
+  paymentDate: z.string().datetime().optional()
 });
 
 function sign(user: AuthUser) {
@@ -207,6 +269,10 @@ export async function createApp() {
     }));
   }));
 
+  app.get("/api/employees/archived", auth, allow("Owner", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listArchivedEmployees());
+  }));
+
   app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.parse(request.body);
     const employee = await repository.createEmployee({
@@ -283,6 +349,24 @@ export async function createApp() {
     response.status(record ? 200 : 404).json(record ?? { message: "Employee not found" });
   }));
 
+  app.patch("/api/attendance/times", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const parsed = attendanceTimeEditSchema.parse(request.body);
+    const record = await repository.updateAttendanceTimes({
+      ...parsed,
+      checkInTime: parsed.checkInTime || undefined,
+      checkOutTime: parsed.checkOutTime || undefined
+    });
+    response.status(record ? 200 : 404).json(record ?? { message: "Employee not found" });
+  }));
+
+  app.get("/api/attendance/settings", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.attendanceSettings());
+  }));
+
+  app.patch("/api/attendance/settings", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.json(await repository.updateAttendanceSettings(attendanceSettingsSchema.parse(request.body)));
+  }));
+
   app.get("/api/attendance/today", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
     response.json(await repository.attendanceToday(request.query.date ? String(request.query.date) : undefined));
   }));
@@ -322,6 +406,15 @@ export async function createApp() {
     response.status(201).json(await repository.createRawMaterial(rawMaterialSchema.parse(request.body)));
   }));
 
+  app.get("/api/raw-materials/history", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listRawMaterialMovements());
+  }));
+
+  app.post("/api/raw-materials/:id/use", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const movement = await repository.useRawMaterial(String(request.params.id), rawMaterialUseSchema.parse(request.body));
+    response.status(movement ? 201 : 404).json(movement ?? { message: "Raw material not found" });
+  }));
+
   app.get("/api/sales", auth, allow("Owner", "Manager", "Salesperson"), asyncRoute(async (_request, response) => {
     response.json(await repository.listSales());
   }));
@@ -349,8 +442,71 @@ export async function createApp() {
     response.json(await repository.reports());
   }));
 
+  app.get("/api/payroll/settings", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
+    response.json(await repository.payrollSettings());
+  }));
+
+  app.patch("/api/payroll/settings", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.json(await repository.updatePayrollSettings(payrollSettingsSchema.parse(request.body)));
+  }));
+
+  app.post("/api/payroll/generate", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.body);
+    response.status(201).json(await repository.generatePayroll(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll/dashboard", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.query);
+    response.json(await repository.payrollDashboard(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll/reports", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const parsed = payrollPeriodSchema.parse(request.query);
+    response.json(await repository.payrollReports(parsed.month, parsed.year));
+  }));
+
+  app.get("/api/payroll", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const month = request.query.month ? Number(request.query.month) : undefined;
+    const year = request.query.year ? Number(request.query.year) : undefined;
+    response.json(await repository.listPayrolls(month, year));
+  }));
+
+  app.get("/api/payroll/:id/payslip", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payslip = await repository.payrollPayslip(String(request.params.id));
+    response.status(payslip ? 200 : 404).json(payslip ?? { message: "Payroll not found" });
+  }));
+
+  app.patch("/api/payroll/:id", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payroll = await repository.updatePayroll(String(request.params.id), payrollAdjustmentSchema.parse(request.body));
+    response.status(payroll ? 200 : 404).json(payroll ?? { message: "Payroll not found" });
+  }));
+
+  app.patch("/api/payroll/:id/pay", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const payroll = await repository.markPayrollPaid(String(request.params.id), payrollPaymentSchema.parse(request.body));
+    response.status(payroll ? 200 : 404).json(payroll ?? { message: "Payroll not found" });
+  }));
+
   app.get("/api/settings", auth, allow(...roles), asyncRoute(async (_request, response) => {
     response.json(await repository.settings());
+  }));
+
+  app.get("/api/users", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listUsers());
+  }));
+
+  app.post("/api/users", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.status(201).json(await repository.createUser(userCreateSchema.parse(request.body)));
+  }));
+
+  app.patch("/api/users/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const parsed = userUpdateSchema.parse(request.body);
+    const user = await repository.updateUser(String(request.params.id), { ...parsed, password: parsed.password || undefined });
+    response.status(user ? 200 : 404).json(user ?? { message: "User not found" });
+  }));
+
+  app.delete("/api/users/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteUser(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
   }));
 
   if (fs.existsSync(clientDir)) {
@@ -366,7 +522,7 @@ export async function createApp() {
       return;
     }
     if (error instanceof Error) {
-      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") ? 409 : 500).json({ message: error.message });
+      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") || error.message.includes("already exists") || error.message.includes("Unique constraint") ? 409 : 500).json({ message: error.message });
       return;
     }
     response.status(500).json({ message: "Unexpected server error" });

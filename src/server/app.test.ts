@@ -54,6 +54,34 @@ describe("Light Garment ERP API", () => {
     expect(checkIn.body.employeeName).toBe("Test Tailor");
   });
 
+  it("archives employees instead of permanently deleting them", async () => {
+    const { app, token } = await login();
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Archive Candidate")
+      .field("faydaNumber", "FIN-ARCH-0001")
+      .field("phoneNumber", "+251900123123")
+      .field("address", "Archive office")
+      .field("gender", "Other")
+      .field("dateOfBirth", "1998-01-01")
+      .field("position", "Clerk")
+      .field("department", "Admin")
+      .field("salary", "10000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(201);
+
+    await request(app).delete(`/api/employees/${create.body.id}`).set("Authorization", `Bearer ${token}`).expect(204);
+
+    const active = await request(app).get("/api/employees?pageSize=100").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(active.body.data.some((item: { id: string }) => item.id === create.body.id)).toBe(false);
+
+    const archived = await request(app).get("/api/employees/archived").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(archived.body.some((item: { id: string; archivedAt?: string }) => item.id === create.body.id && item.archivedAt)).toBe(true);
+  });
+
   it("handles attendance check-in, duplicate prevention, checkout, manual status, stats, and monthly report", async () => {
     const { app, token } = await login();
     const employees = await request(app)
@@ -109,9 +137,121 @@ describe("Light Garment ERP API", () => {
     expect(month.body.attendancePercentage).toBeGreaterThan(0);
   });
 
+  it("lets owner edit attendance start/end settings and check-in/check-out times", async () => {
+    const { app, token } = await login();
+    const employees = await request(app)
+      .get("/api/employees?pageSize=10")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const employee = employees.body.data.find((item: { fullName: string }) => item.fullName === "Miriam Bekele");
+    const date = "2026-06-27";
+
+    const settings = await request(app)
+      .patch("/api/attendance/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startTime: "08:00", endTime: "16:30" })
+      .expect(200);
+
+    expect(settings.body).toEqual({ startTime: "08:00", endTime: "16:30" });
+
+    const defaultDate = "2026-01-01";
+    await request(app)
+      .post("/api/attendance/check-in")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date: defaultDate, time: "2026-01-01T07:30:00.000Z" })
+      .expect(201);
+
+    const defaulted = await request(app)
+      .get(`/api/attendance/today?date=${defaultDate}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const defaultedRow = defaulted.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(defaultedRow.checkOutTime).toBe("2026-01-01T16:30:00.000Z");
+    expect(defaultedRow.totalHours).toBe(9);
+    expect(defaultedRow.overtimeHours).toBe(0);
+
+    const edited = await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date, checkInTime: "2026-06-27T07:30:00.000Z", checkOutTime: "2026-06-27T16:30:00.000Z" })
+      .expect(200);
+
+    expect(edited.body.status).toBe("Present");
+    expect(edited.body.totalHours).toBe(9);
+
+    const today = await request(app)
+      .get(`/api/attendance/today?date=${date}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const row = today.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(row.checkInTime).toBe("2026-06-27T07:30:00.000Z");
+    expect(row.checkOutTime).toBe("2026-06-27T16:30:00.000Z");
+
+    const overtime = await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date, checkInTime: "2026-06-27T07:30:00.000Z", checkOutTime: "2026-06-27T18:00:00.000Z" })
+      .expect(200);
+
+    expect(overtime.body.totalHours).toBe(10.5);
+    expect(overtime.body.overtimeHours).toBe(1.5);
+  });
+
   it("blocks storekeeper and sales roles from attendance module APIs", async () => {
     const { app, token } = await login("sales@lightgarment.example");
     await request(app).get("/api/attendance/today").set("Authorization", `Bearer ${token}`).expect(403);
+  });
+
+  it("generates payroll from attendance and marks salaries paid", async () => {
+    const { app, token } = await login();
+    const employees = await request(app).get("/api/employees?pageSize=10").set("Authorization", `Bearer ${token}`).expect(200);
+    const employee = employees.body.data.find((item: { fullName: string }) => item.fullName === "Yonas Alemu");
+
+    await request(app)
+      .patch("/api/payroll/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ standardHoursPerDay: 8, workingDaysPerMonth: 26, gracePeriodMinutes: 10, overtimeRatePerHour: 100, latePenaltyEnabled: true, latePenaltyAmount: 25, absenceDeductionEnabled: true, taxPercentage: 0, defaultAllowance: 100, defaultBonus: 50 })
+      .expect(200);
+
+    await request(app)
+      .patch("/api/attendance/times")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ employeeId: employee.id, date: "2026-06-10", checkInTime: "2026-06-10T07:30:00.000Z", checkOutTime: "2026-06-10T18:00:00.000Z" })
+      .expect(200);
+
+    const generated = await request(app)
+      .post("/api/payroll/generate")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ month: 6, year: 2026 })
+      .expect(201);
+
+    const payroll = generated.body.find((item: { employeeId: string }) => item.employeeId === employee.id);
+    expect(payroll.overtimeHours).toBeGreaterThan(0);
+    expect(payroll.overtimePay).toBeGreaterThan(0);
+    expect(payroll.paymentStatus).toBe("Pending");
+
+    const paid = await request(app)
+      .patch(`/api/payroll/${payroll.id}/pay`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ paymentMethod: "Bank transfer" })
+      .expect(200);
+
+    expect(paid.body.paymentStatus).toBe("Paid");
+    expect(paid.body.paymentMethod).toBe("Bank transfer");
+
+    const dashboard = await request(app)
+      .get("/api/payroll/dashboard?month=6&year=2026")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(dashboard.body.totalPayroll).toBeGreaterThan(0);
+  });
+
+  it("blocks salesperson from payroll APIs", async () => {
+    const { app, token } = await login("sales@lightgarment.example");
+    await request(app).get("/api/payroll/dashboard?month=6&year=2026").set("Authorization", `Bearer ${token}`).expect(403);
   });
 
   it("registers raw materials from the inventory module API", async () => {
@@ -127,6 +267,47 @@ describe("Light Garment ERP API", () => {
 
     const rows = await request(app).get("/api/raw-materials").set("Authorization", `Bearer ${token}`).expect(200);
     expect(rows.body.some((item: { name: string }) => item.name === "Test Denim Fabric")).toBe(true);
+  });
+
+  it("records raw material usage history permanently", async () => {
+    const { app, token } = await login();
+    const rawRows = await request(app).get("/api/raw-materials").set("Authorization", `Bearer ${token}`).expect(200);
+    const raw = rawRows.body[0];
+
+    const used = await request(app)
+      .post(`/api/raw-materials/${raw.id}/use`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ quantity: 5, reference: "CUT-001", note: "Cutting room use" })
+      .expect(201);
+
+    expect(used.body.rawMaterialName).toBe(raw.name);
+    expect(used.body.type).toBe("Used");
+
+    const history = await request(app).get("/api/raw-materials/history").set("Authorization", `Bearer ${token}`).expect(200);
+    expect(history.body.some((item: { id: string }) => item.id === used.body.id)).toBe(true);
+  });
+
+  it("lets owner manage users and blocks non-owner user management", async () => {
+    const { app, token } = await login();
+    const created = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Test User", email: "test.user@example.com", password: "Password123!", role: "Salesperson" })
+      .expect(201);
+
+    expect(created.body.isActive).toBe(true);
+
+    const suspended = await request(app)
+      .patch(`/api/users/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ isActive: false, password: "Password456!" })
+      .expect(200);
+
+    expect(suspended.body.isActive).toBe(false);
+    await request(app).delete(`/api/users/${created.body.id}`).set("Authorization", `Bearer ${token}`).expect(204);
+
+    const salesLogin = await login("sales@lightgarment.example");
+    await request(salesLogin.app).get("/api/users").set("Authorization", `Bearer ${salesLogin.token}`).expect(403);
   });
 
   it("creates POS invoices and deducts shirt stock", async () => {

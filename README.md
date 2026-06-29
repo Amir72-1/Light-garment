@@ -64,6 +64,16 @@ docker compose up --build
 
 The app container serves the Express API and compiled React frontend on port `4000`.
 
+## Free cloud deployment
+
+See `docs/free-deploy.md`.
+
+Production command:
+
+```bash
+npm run start:deploy
+```
+
 ## API documentation
 
 See `docs/api.md`.

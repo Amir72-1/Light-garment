@@ -41,12 +41,26 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 - `POST /inventory/movements` - Create `Stock in`, `Stock out`, `Transfer`, or `Adjustment` movement.
 - `GET /raw-materials` - Fabric, thread, buttons, labels, and packaging stock.
 - `POST /raw-materials` - Register a raw material with `{ name, category, unit, quantity, reorderLevel, unitCost }`.
+- `GET /raw-materials/history` - Durable raw material usage history.
+- `POST /raw-materials/:id/use` - Record raw material usage with `{ quantity, reference?, note? }`.
 
 ## Sales POS
 
 - `GET /sales` - Invoice history.
 - `POST /sales` - Create invoice, track payment, and deduct stock. Use `amountPaid: 0` to save an unpaid sale.
 - `PATCH /sales/:id/pay` - Mark an unpaid or partially paid invoice paid with `{ amountPaid?, paymentMethod? }`.
+
+## Payroll
+
+- `GET /payroll/settings` - View payroll automation settings.
+- `PATCH /payroll/settings` - Owner updates payroll settings.
+- `POST /payroll/generate` - Owner/HR generates payroll for `{ month, year }` from attendance.
+- `GET /payroll/dashboard?month=&year=` - Payroll dashboard totals and history.
+- `GET /payroll?month=&year=` - Payroll history records.
+- `GET /payroll/reports?month=&year=` - Monthly, department, attendance, overtime, deduction, and payment reports.
+- `GET /payroll/:id/payslip` - Printable employee payslip data.
+- `PATCH /payroll/:id` - Owner/HR updates bonus, allowance, deductions, and notes.
+- `PATCH /payroll/:id/pay` - Owner/HR marks salary paid.
 
 ## Production
 
@@ -57,3 +71,7 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 
 - `GET /reports` - Employee, attendance, inventory, sales, and profit reports.
 - `GET /settings` - Company info, currency, backup schedule, and theme.
+- `GET /users` - Owner-only user management list with active/online status.
+- `POST /users` - Owner adds user.
+- `PATCH /users/:id` - Owner changes name, role, active status, or password.
+- `DELETE /users/:id` - Owner deletes user.
