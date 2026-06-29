@@ -82,7 +82,7 @@ export default function App() {
   const visibleNav = navItems.filter((item) => item.roles.includes(session.user.role));
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <div className="min-h-screen min-w-[360px] bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
       {menuOpen && <button aria-label="Close navigation overlay" className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-sm lg:hidden" onClick={() => setMenuOpen(false)} />}
       <aside className={cn("fixed inset-y-0 left-0 z-30 flex max-h-dvh w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="mb-8 rounded-2xl bg-emerald-950 p-4 text-white">
@@ -107,7 +107,7 @@ export default function App() {
           })}
         </nav>
       </aside>
-      <main className="min-w-0 lg:pl-72">
+      <main className="min-w-[360px] lg:pl-72">
         <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-3 py-3 backdrop-blur sm:px-4 lg:px-8 dark:border-slate-800 dark:bg-slate-950/90">
           <div className="flex items-center gap-3">
             <Button variant="secondary" className="lg:hidden" onClick={() => setMenuOpen((value) => !value)}><Menu className="h-4 w-4" /></Button>
@@ -123,7 +123,7 @@ export default function App() {
             </Button>
           </div>
         </header>
-        <section className="min-w-0 p-3 sm:p-4 lg:p-8">
+        <section className="min-w-[360px] overflow-x-auto p-3 sm:p-4 lg:p-8">
           {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
           {active === "employees" && <Employees token={session.token} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
@@ -140,8 +140,8 @@ export default function App() {
 }
 
 function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
-  const [email, setEmail] = useState("owner@lightgarment.example");
-  const [password, setPassword] = useState("Password123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const login = useMutation({ mutationFn: () => api.login(email, password), onSuccess: onLogin });
   const reset = useMutation({ mutationFn: () => api.passwordReset(resetEmail || email) });
@@ -157,7 +157,7 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
       </section>
       <Card className="m-auto w-full max-w-md">
         <h2 className="text-2xl font-black">Login</h2>
-        <p className="mt-1 text-sm text-slate-500">Demo owner: owner@lightgarment.example / Password123!</p>
+        <p className="mt-1 text-sm text-slate-500">Use the owner account configured for your deployment.</p>
         <form className="mt-6 grid gap-4" onSubmit={(event) => { event.preventDefault(); login.mutate(); }}>
           <Field label="Email"><Input value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></Field>
           <Field label="Password"><Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" /></Field>
@@ -261,7 +261,10 @@ function Employees({ token }: { token: string }) {
   const archivedEmployees = useQuery({ queryKey: ["archived-employees"], queryFn: () => api.archivedEmployees(token) });
   const attendance = useQuery({ queryKey: ["attendance"], queryFn: () => api.attendance(token) });
   const invalidate = () => { queryClient.invalidateQueries({ queryKey: ["employees"] }); queryClient.invalidateQueries({ queryKey: ["archived-employees"] }); queryClient.invalidateQueries({ queryKey: ["attendance"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); };
-  const createEmployee = useMutation({ mutationFn: (form: FormData) => api.createEmployee(token, form), onSuccess: invalidate });
+  const createEmployee = useMutation({
+    mutationFn: (form: FormData) => api.createEmployee(token, form),
+    onSuccess: invalidate
+  });
   const deleteEmployee = useMutation({
     mutationFn: async (employee: Employee) => {
       await api.deleteEmployee(token, employee.id);
@@ -321,7 +324,7 @@ function Employees({ token }: { token: string }) {
           </Card>
         </div>
         <div className="grid gap-6 self-start">
-          <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form) => createEmployee.mutate(form)} />
+          <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form, formElement) => createEmployee.mutate(form, { onSuccess: () => formElement.reset() })} />
           <Card>
             <h3 className="text-lg font-bold">Archived employees</h3>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Archived records stay available for HR history.</p>
@@ -365,11 +368,11 @@ function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onCl
   );
 }
 
-function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData) => void; pending: boolean; error?: string }) {
+function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData, formElement: HTMLFormElement) => void; pending: boolean; error?: string }) {
   return (
     <Card>
       <h3 className="text-lg font-bold">Add employee</h3>
-      <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); event.currentTarget.reset(); }}>
+      <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget), event.currentTarget); }}>
         <Field label="Full name"><Input name="fullName" required /></Field>
         <Field label="Fayda number"><Input name="faydaNumber" placeholder="FIN / Fayda ID number" /></Field>
         <div className="grid gap-3 md:grid-cols-2">

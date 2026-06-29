@@ -43,6 +43,21 @@ const loginSchema = z.object({
   password: z.string().min(8)
 });
 
+function normalizeDateInput(value: string) {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const slash = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    const [, month, day, year] = slash;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return trimmed;
+}
+
+const dateField = z.preprocess((value) => typeof value === "string" ? normalizeDateInput(value) : value, z.string().regex(/^\d{4}-\d{2}-\d{2}$/));
+
 const employeeSchema = z.object({
   fullName: z.string().min(2),
   faydaNumber: z.string().min(4).optional().or(z.literal("")),
@@ -50,12 +65,12 @@ const employeeSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().min(3),
   gender: z.enum(["Male", "Female", "Other"]),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dateOfBirth: dateField,
   position: z.string().min(2),
   department: z.enum(["Production", "Sales", "Admin", "Store"]),
   salary: z.coerce.number().nonnegative(),
   employmentType: z.enum(["Full-time", "Part-time", "Contract"]),
-  hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hireDate: dateField,
   status: z.enum(["Active", "Inactive"]).default("Active")
 });
 
