@@ -3,6 +3,14 @@
 
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 * {
@@ -10,10 +18,19 @@
 }
 
 body {
-  min-width: 320px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin: 0;
   background: #f1f5f9;
-  overflow-x: auto;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 button,
@@ -64,9 +81,9 @@ th {
 .overflow-x-auto {
   display: block;
   width: 100%;
-  max-width: calc(100vw - 2rem);
+  max-width: 100%;
   min-width: 0;
-  overflow-x: scroll !important;
+  overflow-x: auto !important;
   overflow-y: hidden;
   padding-bottom: 0.5rem;
   scrollbar-color: #10b981 #e2e8f0;
@@ -74,9 +91,23 @@ th {
   -webkit-overflow-scrolling: touch;
 }
 
-@media (min-width: 1024px) {
-  .overflow-x-auto {
-    max-width: calc(100vw - 22rem);
+.app-shell,
+.app-main,
+.app-content {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+@media (max-width: 639px) {
+  .action-row {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .mobile-stack-card {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
 

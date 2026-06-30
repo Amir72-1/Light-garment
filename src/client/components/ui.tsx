@@ -30,7 +30,7 @@ export function Button({
 }
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100", className)} {...props} />;
+  return <div className={cn("min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100", className)} {...props} />;
 }
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {

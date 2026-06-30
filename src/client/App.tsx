@@ -82,9 +82,9 @@ export default function App() {
   const visibleNav = navItems.filter((item) => item.roles.includes(session.user.role));
 
   return (
-    <div className="min-h-screen min-w-[360px] bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <div className="app-shell min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
       {menuOpen && <button aria-label="Close navigation overlay" className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-sm lg:hidden" onClick={() => setMenuOpen(false)} />}
-      <aside className={cn("fixed inset-y-0 left-0 z-30 flex max-h-dvh w-[min(18rem,calc(100vw-2rem))] flex-col overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")}>
+      <aside className={cn("fixed inset-y-0 left-0 z-30 flex max-h-dvh w-[min(18rem,calc(100vw-1rem))] flex-col overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-4 transition lg:translate-x-0 dark:border-slate-800 dark:bg-slate-900", menuOpen ? "translate-x-0" : "-translate-x-full")} style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
         <div className="mb-8 rounded-2xl bg-emerald-950 p-4 text-white">
           <div className="flex items-center gap-3">
             <LightGarmentLogo />
@@ -107,13 +107,13 @@ export default function App() {
           })}
         </nav>
       </aside>
-      <main className="min-w-[360px] lg:pl-72">
-        <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-3 py-3 backdrop-blur sm:px-4 lg:px-8 dark:border-slate-800 dark:bg-slate-950/90">
-          <div className="flex items-center gap-3">
-            <Button variant="secondary" className="lg:hidden" onClick={() => setMenuOpen((value) => !value)}><Menu className="h-4 w-4" /></Button>
+      <main className="app-main lg:pl-72">
+        <header className="sticky top-0 z-20 flex min-h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white/90 px-3 py-2 backdrop-blur sm:min-h-16 sm:gap-3 sm:px-4 sm:py-3 lg:px-8 dark:border-slate-800 dark:bg-slate-950/90" style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <Button variant="secondary" className="h-9 w-9 shrink-0 px-0 lg:hidden" onClick={() => setMenuOpen((value) => !value)}><Menu className="h-4 w-4" /></Button>
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production-ready garment ERP</p>
-              <h2 className="truncate font-bold">Light Garment Manufacturing PLC</h2>
+              <p className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:block">Production-ready garment ERP</p>
+              <h2 className="truncate text-sm font-bold sm:text-base">Light Garment Manufacturing PLC</h2>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -123,9 +123,9 @@ export default function App() {
             </Button>
           </div>
         </header>
-        <section className="min-w-[360px] overflow-x-auto p-3 sm:p-4 lg:p-8">
+        <section className="app-content p-3 sm:p-4 lg:p-8" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
           {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
-          {active === "employees" && <Employees token={session.token} role={session.role} />}
+          {active === "employees" && <Employees token={session.token} role={session.user.role} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
           {active === "payroll" && <Payroll token={session.token} role={session.user.role} />}
           {active === "inventory" && <Inventory token={session.token} />}
@@ -147,15 +147,29 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
   const reset = useMutation({ mutationFn: () => api.passwordReset(resetEmail || email) });
 
   return (
-    <main className="grid min-h-screen bg-[radial-gradient(circle_at_top_left,_#bbf7d0,_transparent_32rem),linear-gradient(135deg,_#052e16,_#0f172a)] p-4 lg:grid-cols-[1.1fr_0.9fr] lg:p-10">
-      <section className="flex items-center">
+    <main className="grid min-h-screen w-full max-w-full overflow-x-hidden bg-[radial-gradient(circle_at_top_left,_#bbf7d0,_transparent_32rem),linear-gradient(135deg,_#052e16,_#0f172a)] p-4 sm:p-6 lg:grid-cols-[1.1fr_0.9fr] lg:p-10">
+      <section className="hidden items-center lg:flex">
         <div className="max-w-3xl text-white">
+          <div className="mb-6 flex items-center gap-4">
+            <LightGarmentLogo />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Light Garment</p>
+              <p className="text-2xl font-black">Manufacturing PLC</p>
+            </div>
+          </div>
           <Badge className="bg-white/10 text-emerald-100">Garment manufacturing ERP</Badge>
-          <h1 className="mt-6 text-4xl font-black tracking-tight md:text-6xl">Run HR, inventory, production, and POS from one secure workspace.</h1>
-          <p className="mt-6 max-w-2xl text-lg text-emerald-50">Role-based dashboards, employee registration with photos, attendance logs, stock control, invoices, reports, and Docker-ready deployment.</p>
+          <h1 className="mt-6 text-3xl font-black tracking-tight sm:text-4xl md:text-5xl xl:text-6xl">Run HR, inventory, production, and POS from one secure workspace.</h1>
+          <p className="mt-6 max-w-2xl text-base text-emerald-50 sm:text-lg">Role-based dashboards, employee registration with photos, attendance logs, stock control, invoices, reports, and Docker-ready deployment.</p>
         </div>
       </section>
-      <Card className="m-auto w-full max-w-md">
+      <Card className="mx-auto w-full max-w-md">
+        <div className="mb-4 flex items-center gap-3 lg:hidden">
+          <LightGarmentLogo compact />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700 dark:text-emerald-300">Light Garment</p>
+            <p className="text-lg font-black">ERP Login</p>
+          </div>
+        </div>
         <h2 className="text-2xl font-black">Login</h2>
         <p className="mt-1 text-sm text-slate-500">Use the owner account configured for your deployment.</p>
         <form className="mt-6 grid gap-4" onSubmit={(event) => { event.preventDefault(); login.mutate(); }}>
@@ -195,10 +209,12 @@ function ThemeToggle({ theme, onThemeChange }: { theme: ThemeMode; onThemeChange
   );
 }
 
-function LightGarmentLogo() {
+function LightGarmentLogo({ compact = false }: { compact?: boolean }) {
+  const sizeClass = compact ? "h-11 w-11" : "h-14 w-14";
+  const iconClass = compact ? "h-8 w-8" : "h-11 w-11";
   return (
-    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-300 shadow-lg shadow-amber-500/20" aria-hidden="true">
-      <svg viewBox="0 0 64 64" className="h-11 w-11">
+    <div className={cn("grid shrink-0 place-items-center rounded-2xl bg-amber-300 shadow-lg shadow-amber-500/20", sizeClass)} aria-hidden="true">
+      <svg viewBox="0 0 64 64" className={iconClass}>
         <path d="M32 5c-11 0-20 8.9-20 19.8 0 6.8 3.4 12.3 8.5 16.1 2.5 1.9 3.7 4 3.7 6.6h15.6c0-2.7 1.2-4.8 3.7-6.6C48.6 37 52 31.5 52 24.8 52 13.9 43 5 32 5Z" fill="#fef3c7" stroke="#064e3b" strokeWidth="3" />
         <path d="M24.5 49.5h15M26.5 55h11" stroke="#064e3b" strokeWidth="3" strokeLinecap="round" />
         <path d="M23 22.5 29 18l3 3 3-3 6 4.5-3.2 5.1-2.8-1.7V38h-6V25.9l-2.8 1.7L23 22.5Z" fill="#10b981" stroke="#064e3b" strokeWidth="2" strokeLinejoin="round" />
@@ -344,7 +360,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
           <>
             <div className="grid gap-4">
               {employees.data?.data.map((employee) => (
-                <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <Card key={employee.id} className="mobile-stack-card grid max-w-full gap-4 md:grid-cols-[1fr_auto]">
                   <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800/60" onClick={() => setSelected(employee)}>
                     <Avatar employee={employee} />
                     <div>
@@ -378,7 +394,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Archived records stay available for HR history. Owners can permanently delete records from the profile or list.</p>
             <div className="mt-4 grid gap-3">
               {filteredArchived.length ? filteredArchived.map((employee) => (
-                <div key={employee.id} className="grid gap-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
+                <div key={employee.id} className="mobile-stack-card grid max-w-full gap-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
                   <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800/60" onClick={() => setSelected(employee)}>
                     <Avatar employee={employee} />
                     <div>
@@ -430,8 +446,8 @@ function EmployeeProfileDialog({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <Card className="max-h-[90dvh] w-full max-w-xl overflow-y-auto">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 id="employee-profile-title" className="text-xl font-black">Employee profile</h3>
