@@ -22,12 +22,14 @@ DEMO_MODE=false
 JWT_SECRET=<long-random-secret>
 DATABASE_URL=<free-postgres-connection-url>
 CORS_ORIGIN=<your-public-app-url>
-INITIAL_OWNER_NAME=<your-owner-name>
-INITIAL_OWNER_EMAIL=<your-real-owner-email>
-INITIAL_OWNER_PASSWORD=<secure-initial-password>
+INITIAL_OWNER_NAME=<optional-owner-name>
+INITIAL_OWNER_EMAIL=<optional-owner-email>
+INITIAL_OWNER_PASSWORD=<optional-owner-password>
 ```
 
 Do not deploy real usage with `DEMO_MODE=true`; demo mode is in-memory and resets on restart.
+
+If the initial owner variables are omitted and no Owner user exists, the seed creates `amir_kiar2001@yahoo.com` with password `Amirkiar1`.
 
 ## Render blueprint
 
@@ -59,9 +61,9 @@ The repository also includes `.npmrc` with `include=dev` so Render does not omit
 
 ## First login
 
-After deployment, log in with `INITIAL_OWNER_EMAIL` and `INITIAL_OWNER_PASSWORD`.
+After deployment, log in with `INITIAL_OWNER_EMAIL` and `INITIAL_OWNER_PASSWORD`, or the default fallback `amir_kiar2001@yahoo.com` / `Amirkiar1` if you did not set them.
 
-Immediately change/add users in Settings.
+Immediately change the owner password in Settings -> User management after publishing. The Owner can change passwords for all users from that page.
 
 ## Important production notes
 
