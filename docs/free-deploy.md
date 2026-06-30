@@ -28,7 +28,7 @@ INITIAL_OWNER_PASSWORD=<optional-owner-password>
 ```
 
 Do not deploy real usage with `DEMO_MODE=true`; demo mode is in-memory and resets on restart.
-If the initial owner variables are omitted and no Owner user exists, the seed creates `owner@lightgarment.com` with password `Amirkiar1`.
+If the initial owner variables are omitted and no Owner user exists, the seed creates `amir_kiar2001@yahoo.com` with password `Amirkiar1`.
 
 ## Render blueprint
 
@@ -60,9 +60,9 @@ The repository also includes `.npmrc` with `include=dev` so Render does not omit
 
 ## First login
 
-After deployment, log in with `INITIAL_OWNER_EMAIL` and `INITIAL_OWNER_PASSWORD`, or the default fallback `owner@lightgarment.com` / `Amirkiar1` if you did not set them.
+After deployment, log in with `INITIAL_OWNER_EMAIL` and `INITIAL_OWNER_PASSWORD`, or the default fallback `amir_kiar2001@yahoo.com` / `Amirkiar1` if you did not set them.
 
-Immediately change/add users in Settings.
+Immediately change the owner password in Settings -> User management after publishing. The Owner can change passwords for all users from that page.
 
 ## Important production notes
 

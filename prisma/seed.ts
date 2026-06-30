@@ -19,7 +19,7 @@ async function main() {
   }
 
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "OWNER" } });
-  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL || "owner@lightgarment.com";
+  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL || "amir_kiar2001@yahoo.com";
   const initialOwnerPassword = process.env.INITIAL_OWNER_PASSWORD || "Amirkiar1";
   const initialOwnerName = process.env.INITIAL_OWNER_NAME || "Light Garment Owner";
 
