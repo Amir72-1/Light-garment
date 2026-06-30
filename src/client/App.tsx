@@ -279,12 +279,7 @@ function Login({
           </div>
         )}
         <h2 className="text-2xl font-black">Login</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use the owner credentials below or your assigned account.</p>
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Owner credentials</p>
-          <p className="mt-2 text-sm text-slate-700 dark:text-slate-200"><span className="font-semibold">Email:</span> amir_kiar2001@yahoo.com</p>
-          <p className="text-sm text-slate-700 dark:text-slate-200"><span className="font-semibold">Password:</span> Amirkiar1</p>
-        </div>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Sign in with your assigned account.</p>
         <form className="mt-6 grid gap-4" onSubmit={(event) => { event.preventDefault(); login.mutate(); }}>
           <Field label="Email"><Input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" /></Field>
           <Field label="Password"><Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" /></Field>
