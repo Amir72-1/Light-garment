@@ -20,6 +20,14 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
+import {
+  clearStoredSession,
+  getSessionExpiryReason,
+  persistSession,
+  readStoredSession,
+  sessionExpiryMessage,
+  touchSessionActivity
+} from "./session";
 import type { AttendanceRecord, AttendanceSettings, Employee, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
@@ -58,13 +66,48 @@ function applyTheme(theme: ThemeMode) {
 }
 
 export default function App() {
-  const [session, setSession] = useState<UserSession | null>(() => {
-    const saved = localStorage.getItem("lgm-session");
-    return saved ? JSON.parse(saved) as UserSession : null;
-  });
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [staleUser, setStaleUser] = useState<UserSession["user"] | null>(null);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [active, setActive] = useState<ModuleKey>("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("lgm-theme") as ThemeMode | null) || "system");
+
+  const logout = () => {
+    clearStoredSession();
+    setSession(null);
+    setStaleUser(null);
+    setSessionMessage(null);
+  };
+
+  const handleLogin = (next: UserSession) => {
+    persistSession(next);
+    setStaleUser(null);
+    setSessionMessage(null);
+    setSession(next);
+  };
+
+  useEffect(() => {
+    const stored = readStoredSession();
+    if (!stored) {
+      setSessionReady(true);
+      return;
+    }
+
+    const reason = getSessionExpiryReason(stored);
+    if (reason) {
+      setStaleUser(stored.user);
+      setSessionMessage(sessionExpiryMessage(reason));
+      clearStoredSession();
+      setSessionReady(true);
+      return;
+    }
+
+    setSession(stored);
+    touchSessionActivity();
+    setSessionReady(true);
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -75,8 +118,48 @@ export default function App() {
     return () => media.removeEventListener("change", listener);
   }, [theme]);
 
+  useEffect(() => {
+    if (!session) return;
+
+    const expireIfNeeded = () => {
+      const reason = getSessionExpiryReason(session);
+      if (!reason) return;
+      setStaleUser(session.user);
+      setSessionMessage(sessionExpiryMessage(reason));
+      clearStoredSession();
+      setSession(null);
+    };
+
+    const recordActivity = () => touchSessionActivity();
+    const events: Array<keyof WindowEventMap> = ["click", "keydown", "mousemove", "touchstart", "scroll"];
+    events.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }));
+
+    const interval = window.setInterval(expireIfNeeded, 60_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") expireIfNeeded();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, recordActivity));
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [session]);
+
+  if (!sessionReady) {
+    return <main className="grid min-h-screen place-items-center bg-slate-100 dark:bg-slate-950"><p className="text-sm font-semibold text-slate-500">Loading session...</p></main>;
+  }
+
   if (!session) {
-    return <Login onLogin={(next) => { localStorage.setItem("lgm-session", JSON.stringify(next)); setSession(next); }} />;
+    return (
+      <Login
+        onLogin={handleLogin}
+        staleUser={staleUser}
+        sessionMessage={sessionMessage}
+        onLogout={logout}
+      />
+    );
   }
 
   const visibleNav = navItems.filter((item) => item.roles.includes(session.user.role));
@@ -95,7 +178,7 @@ export default function App() {
           </div>
           <p className="mt-3 text-sm text-emerald-100">Signed in as {session.user.role}</p>
         </div>
-        <nav className="grid min-h-0 gap-2 pb-6">
+        <nav className="grid min-h-0 flex-1 gap-2 pb-6">
           {visibleNav.map((item) => {
             const Icon = item.icon;
             return (
@@ -106,6 +189,9 @@ export default function App() {
             );
           })}
         </nav>
+        <Button variant="secondary" className="mt-auto w-full" onClick={logout}>
+          <LogOut className="h-4 w-4" /> Logout
+        </Button>
       </aside>
       <main className="app-main lg:pl-72">
         <header className="sticky top-0 z-20 flex min-h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white/90 px-3 py-2 backdrop-blur sm:min-h-16 sm:gap-3 sm:px-4 sm:py-3 lg:px-8 dark:border-slate-800 dark:bg-slate-950/90" style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}>
@@ -118,8 +204,8 @@ export default function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle theme={theme} onThemeChange={setTheme} />
-            <Button variant="ghost" className="h-9 w-9 px-0 sm:w-auto sm:px-4" aria-label="Logout" onClick={() => { localStorage.removeItem("lgm-session"); setSession(null); }}>
-              <LogOut className="h-4 w-4 sm:mr-2" /> <span className="hidden sm:inline">Logout</span>
+            <Button variant="ghost" className="h-9 px-3" aria-label="Logout" onClick={logout}>
+              <LogOut className="h-4 w-4" /> Logout
             </Button>
           </div>
         </header>
@@ -139,9 +225,19 @@ export default function App() {
   );
 }
 
-function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function Login({
+  onLogin,
+  staleUser,
+  sessionMessage,
+  onLogout
+}: {
+  onLogin: (session: UserSession) => void;
+  staleUser?: UserSession["user"] | null;
+  sessionMessage?: string | null;
+  onLogout?: () => void;
+}) {
+  const [email, setEmail] = useState("amir_kiar2001@yahoo.com");
+  const [password, setPassword] = useState("Amirkiar1");
   const [resetEmail, setResetEmail] = useState("");
   const login = useMutation({ mutationFn: () => api.login(email, password), onSuccess: onLogin });
   const reset = useMutation({ mutationFn: () => api.passwordReset(resetEmail || email) });
@@ -160,6 +256,7 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
           <Badge className="bg-white/10 text-emerald-100">Garment manufacturing ERP</Badge>
           <h1 className="mt-6 text-3xl font-black tracking-tight sm:text-4xl md:text-5xl xl:text-6xl">Run HR, inventory, production, and POS from one secure workspace.</h1>
           <p className="mt-6 max-w-2xl text-base text-emerald-50 sm:text-lg">Role-based dashboards, employee registration with photos, attendance logs, stock control, invoices, reports, and Docker-ready deployment.</p>
+          <p className="mt-8 text-sm font-semibold text-emerald-100/90">Creator: Amir Kiar</p>
         </div>
       </section>
       <Card className="mx-auto w-full max-w-md">
@@ -170,22 +267,39 @@ function Login({ onLogin }: { onLogin: (session: UserSession) => void }) {
             <p className="text-lg font-black">ERP Login</p>
           </div>
         </div>
+        {staleUser && sessionMessage && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+            <p className="text-sm font-semibold text-amber-950 dark:text-amber-100">{sessionMessage}</p>
+            <p className="mt-1 text-sm text-amber-900 dark:text-amber-200">Previously signed in as {staleUser.name} ({staleUser.role})</p>
+            {onLogout && (
+              <Button variant="secondary" className="mt-3" onClick={onLogout}>
+                <LogOut className="h-4 w-4" /> Logout
+              </Button>
+            )}
+          </div>
+        )}
         <h2 className="text-2xl font-black">Login</h2>
-        <p className="mt-1 text-sm text-slate-500">Use the owner account configured for your deployment.</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use the owner credentials below or your assigned account.</p>
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Owner credentials</p>
+          <p className="mt-2 text-sm text-slate-700 dark:text-slate-200"><span className="font-semibold">Email:</span> amir_kiar2001@yahoo.com</p>
+          <p className="text-sm text-slate-700 dark:text-slate-200"><span className="font-semibold">Password:</span> Amirkiar1</p>
+        </div>
         <form className="mt-6 grid gap-4" onSubmit={(event) => { event.preventDefault(); login.mutate(); }}>
-          <Field label="Email"><Input value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></Field>
-          <Field label="Password"><Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" /></Field>
-          {login.error && <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{login.error.message}</p>}
+          <Field label="Email"><Input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="username" /></Field>
+          <Field label="Password"><Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" /></Field>
+          {login.error && <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{login.error.message}</p>}
           <Button disabled={login.isPending}>{login.isPending ? "Signing in..." : "Login"}</Button>
         </form>
-        <div className="mt-6 border-t border-slate-100 pt-4">
+        <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
           <p className="text-sm font-semibold">Password reset</p>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <Input placeholder="email@example.com" value={resetEmail} onChange={(event) => setResetEmail(event.target.value)} />
             <Button variant="secondary" onClick={() => reset.mutate()} disabled={reset.isPending}>Reset</Button>
           </div>
-          {reset.isSuccess && <p className="mt-2 text-sm text-emerald-700">Reset instructions prepared.</p>}
+          {reset.isSuccess && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">Reset instructions prepared.</p>}
         </div>
+        <p className="mt-6 text-center text-sm font-semibold text-slate-500 dark:text-slate-400">Creator: Amir Kiar</p>
       </Card>
     </main>
   );
