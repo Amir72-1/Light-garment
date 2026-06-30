@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import cors from "cors";
@@ -9,6 +8,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import { z } from "zod";
 import { DemoRepository } from "./data.js";
+import { imageFileToDataUrl } from "./imageStorage.js";
 import { PrismaRepository } from "./prismaRepository.js";
 import type { RoleName } from "../shared/types.js";
 
@@ -21,14 +21,8 @@ const clientDir = path.resolve(process.cwd(), "dist-client");
 
 fs.mkdirSync(uploadDir, { recursive: true });
 
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_request, _file, callback) => callback(null, uploadDir),
-    filename: (_request, file, callback) => {
-      const extension = path.extname(file.originalname).toLowerCase();
-      callback(null, `${crypto.randomUUID()}${extension}`);
-    }
-  }),
+const profileUpload = multer({
+  storage: multer.memoryStorage(),
   fileFilter: (_request, file, callback) => {
     callback(null, /^image\/(png|jpe?g|webp|gif)$/.test(file.mimetype));
   },
@@ -292,13 +286,13 @@ export async function createApp() {
     response.json(await repository.resetEmployeeCodes());
   }));
 
-  app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
+  app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.single("profilePicture"), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.parse(request.body);
     const employee = await repository.createEmployee({
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
-      profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
+      profileImageUrl: request.file ? imageFileToDataUrl(request.file) : undefined
     });
     response.status(201).json(employee);
   }));
@@ -312,13 +306,13 @@ export async function createApp() {
     response.json(employee);
   }));
 
-  app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
+  app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.single("profilePicture"), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.partial().parse(request.body);
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
-      profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
+      profileImageUrl: request.file ? imageFileToDataUrl(request.file) : undefined
     });
     if (!employee) {
       response.status(404).json({ message: "Employee not found" });

@@ -54,6 +54,37 @@ describe("Light Garment ERP API", () => {
     expect(checkIn.body.employeeName).toBe("Test Tailor");
   });
 
+  it("stores employee profile images as durable database data urls", async () => {
+    const { app, token } = await login();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Photo Employee")
+      .field("faydaNumber", "FIN-PHOTO-0001")
+      .field("phoneNumber", "+251900000001")
+      .field("address", "Photo studio")
+      .field("gender", "Other")
+      .field("dateOfBirth", "1999-01-01")
+      .field("position", "Tailor")
+      .field("department", "Production")
+      .field("salary", "12000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .attach("profilePicture", png, { filename: "photo.png", contentType: "image/png" })
+      .expect(201);
+
+    expect(create.body.profileImageUrl).toMatch(/^data:image\/png;base64,/);
+
+    const fetched = await request(app)
+      .get(`/api/employees/${create.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(fetched.body.profileImageUrl).toBe(create.body.profileImageUrl);
+  });
+
   it("archives employees instead of permanently deleting them", async () => {
     const { app, token } = await login();
     const create = await request(app)

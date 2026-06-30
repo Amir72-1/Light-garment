@@ -26,6 +26,7 @@ import type {
   Sale
 } from "../shared/types.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
+import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type ListQuery = {
   search?: string;
@@ -76,7 +77,7 @@ function employeeFromDb(row: any): Employee {
     id: row.id,
     employeeCode: row.employeeCode,
     fullName: row.fullName,
-    profileImageUrl: row.profileImageUrl ?? "",
+    profileImageUrl: normalizeProfileImageUrl(row.profileImageUrl) ?? "",
     faydaNumber: row.faydaNumber ?? undefined,
     phoneNumber: row.phoneNumber,
     email: row.email ?? undefined,

@@ -68,6 +68,7 @@ Immediately change the owner password in Settings -> User management after publi
 ## Important production notes
 
 - PostgreSQL data is persistent if the free database remains active.
-- Uploaded employee/product images currently use the app filesystem. Free web services often have ephemeral disks, so image uploads may be lost after redeploy/restart unless the provider offers persistent storage. For permanent image storage, connect a free object-storage bucket later.
+- Employee profile pictures are saved inside PostgreSQL as durable data URLs, so they survive Render redeploys and restarts.
+- Product images and other legacy `/uploads/` files may still use the app filesystem. Free web services often have ephemeral disks, so those uploads may be lost after redeploy/restart unless the provider offers persistent storage.
 - Schedule periodic database exports/backups from your database provider.
 - Keep the app URL private until passwords and owner users are changed.

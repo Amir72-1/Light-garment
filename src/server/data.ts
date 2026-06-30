@@ -22,6 +22,7 @@ import type {
   SaleItem
 } from "../shared/types.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
+import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type UserRecord = {
   id: string;
@@ -48,6 +49,17 @@ type EmployeeInput = Omit<Employee, "id" | "employeeCode"> & { employeeCode?: st
 
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+
+function sanitizeEmployee(employee: Employee): Employee {
+  return {
+    ...employee,
+    profileImageUrl: normalizeProfileImageUrl(employee.profileImageUrl) ?? ""
+  };
+}
+
+function findEmployeeRecord(employees: Employee[], employeeId: string) {
+  return employees.find((item) => item.id === employeeId) ?? null;
+}
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const defaultAttendanceSettings: AttendanceSettings = {
   startTime: process.env.ATTENDANCE_START_TIME || "09:00",
@@ -348,17 +360,19 @@ export class DemoRepository {
       const rightValue = String(right[sortBy as keyof Employee] ?? "");
       return (query.sortOrder === "desc" ? -1 : 1) * leftValue.localeCompare(rightValue);
     });
-    return paginate(rows, query.page, query.pageSize);
+    return paginate(rows.map(sanitizeEmployee), query.page, query.pageSize);
   }
 
   async getEmployee(employeeId: string) {
-    return this.employees.find((employee) => employee.id === employeeId) ?? null;
+    const employee = findEmployeeRecord(this.employees, employeeId);
+    return employee ? sanitizeEmployee(employee) : null;
   }
 
   async listArchivedEmployees() {
     return this.employees
       .filter((employee) => employee.archivedAt)
-      .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)));
+      .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)))
+      .map(sanitizeEmployee);
   }
 
   async createEmployee(input: EmployeeInput) {
@@ -366,7 +380,7 @@ export class DemoRepository {
     const employee: Employee = { ...input, id: id("emp"), employeeCode: input.employeeCode || `LGM-EMP-${String(nextNumber).padStart(4, "0")}` };
     this.employees.unshift(employee);
     this.log(`Employee ${employee.employeeCode} registered`);
-    return employee;
+    return sanitizeEmployee(employee);
   }
 
   async updateEmployee(employeeId: string, input: Partial<EmployeeInput>) {
@@ -374,11 +388,11 @@ export class DemoRepository {
     if (index === -1) return null;
     this.employees[index] = { ...this.employees[index], ...input };
     this.log(`Employee ${this.employees[index].employeeCode} updated`);
-    return this.employees[index];
+    return sanitizeEmployee(this.employees[index]);
   }
 
   async deleteEmployee(employeeId: string) {
-    const employee = await this.getEmployee(employeeId);
+    const employee = findEmployeeRecord(this.employees, employeeId);
     if (!employee) return false;
     employee.archivedAt = nowIso();
     employee.status = "Inactive";
@@ -387,7 +401,7 @@ export class DemoRepository {
   }
 
   async permanentlyDeleteEmployee(employeeId: string) {
-    const employee = await this.getEmployee(employeeId);
+    const employee = findEmployeeRecord(this.employees, employeeId);
     if (!employee?.archivedAt) return false;
     this.employees = this.employees.filter((item) => item.id !== employeeId);
     this.attendance = this.attendance.filter((item) => item.employeeId !== employeeId);

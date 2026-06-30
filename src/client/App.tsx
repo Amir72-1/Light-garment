@@ -651,14 +651,21 @@ function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData,
 }
 
 function Avatar({ employee, large = false, clickable = false, onClick }: { employee: Employee; large?: boolean; clickable?: boolean; onClick?: () => void }) {
+  const [imageError, setImageError] = useState(false);
   const sizeClass = large ? "h-20 w-20" : "h-14 w-14";
-  const content = employee.profileImageUrl
-    ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", sizeClass)} />
-    : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200", sizeClass, large ? "text-2xl" : "")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+  const showImage = Boolean(employee.profileImageUrl) && !imageError;
+  const initials = (
+    <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200", sizeClass, large ? "text-2xl" : "")}>
+      {employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}
+    </div>
+  );
+  const content = showImage
+    ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", sizeClass)} onError={() => setImageError(true)} />
+    : initials;
 
   if (clickable && onClick) {
     return (
-      <button type="button" className={cn("shrink-0 overflow-hidden rounded-2xl transition hover:ring-2 hover:ring-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500", !employee.profileImageUrl && "cursor-default")} onClick={onClick} disabled={!employee.profileImageUrl} aria-label={employee.profileImageUrl ? `View ${employee.fullName} photo` : undefined}>
+      <button type="button" className={cn("shrink-0 overflow-hidden rounded-2xl transition hover:ring-2 hover:ring-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500", !showImage && "cursor-default")} onClick={onClick} disabled={!showImage} aria-label={showImage ? `View ${employee.fullName} photo` : undefined}>
         {content}
       </button>
     );
