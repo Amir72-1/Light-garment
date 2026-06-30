@@ -236,8 +236,8 @@ function Login({
   sessionMessage?: string | null;
   onLogout?: () => void;
 }) {
-  const [email, setEmail] = useState("amir_kiar2001@yahoo.com");
-  const [password, setPassword] = useState("Amirkiar1");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const login = useMutation({ mutationFn: () => api.login(email, password), onSuccess: onLogin });
   const reset = useMutation({ mutationFn: () => api.passwordReset(resetEmail || email) });
