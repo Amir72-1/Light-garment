@@ -19,13 +19,9 @@ async function main() {
   }
 
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "OWNER" } });
-  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL;
-  const initialOwnerPassword = process.env.INITIAL_OWNER_PASSWORD;
+  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL || "owner@lightgarment.com";
+  const initialOwnerPassword = process.env.INITIAL_OWNER_PASSWORD || "Amirkiar1";
   const initialOwnerName = process.env.INITIAL_OWNER_NAME || "Light Garment Owner";
-
-  if (!initialOwnerEmail || !initialOwnerPassword) {
-    throw new Error("INITIAL_OWNER_EMAIL and INITIAL_OWNER_PASSWORD are required for production seeding.");
-  }
 
   const passwordHash = await bcrypt.hash(initialOwnerPassword, 12);
 
@@ -50,17 +46,41 @@ async function main() {
     }
   });
 
-  await prisma.user.upsert({
-    where: { email: initialOwnerEmail },
-    update: { name: initialOwnerName, passwordHash, roleId: ownerRole.id, isActive: true },
-    create: {
-      name: initialOwnerName,
-      email: initialOwnerEmail,
-      passwordHash,
-      roleId: ownerRole.id,
-      employeeId: managerEmployee.id
-    }
+  const existingOwner = await prisma.user.findFirst({
+    where: { roleId: ownerRole.id }
   });
+
+  if (existingOwner) {
+    console.log(`Owner account already exists: ${existingOwner.email}`);
+  } else {
+    const existingInitialUser = await prisma.user.findUnique({
+      where: { email: initialOwnerEmail }
+    });
+
+    if (existingInitialUser) {
+      await prisma.user.update({
+        where: { id: existingInitialUser.id },
+        data: {
+          name: initialOwnerName,
+          passwordHash,
+          roleId: ownerRole.id,
+          isActive: true
+        }
+      });
+      console.log(`Promoted existing account to owner: ${initialOwnerEmail}`);
+    } else {
+      await prisma.user.create({
+        data: {
+          name: initialOwnerName,
+          email: initialOwnerEmail,
+          passwordHash,
+          roleId: ownerRole.id,
+          employeeId: managerEmployee.id
+        }
+      });
+      console.log(`Created owner account: ${initialOwnerEmail}`);
+    }
+  }
 
   const supplier = await prisma.supplier.upsert({
     where: { id: "seed-supplier-light-textiles" },
