@@ -386,6 +386,27 @@ export class DemoRepository {
     return true;
   }
 
+  async permanentlyDeleteEmployee(employeeId: string) {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee?.archivedAt) return false;
+    this.employees = this.employees.filter((item) => item.id !== employeeId);
+    this.attendance = this.attendance.filter((item) => item.employeeId !== employeeId);
+    this.payrolls = this.payrolls.filter((item) => item.employeeId !== employeeId);
+    this.log(`Employee ${employee.employeeCode} permanently deleted`);
+    return true;
+  }
+
+  async resetEmployeeCodes() {
+    const active = this.employees
+      .filter((employee) => !employee.archivedAt)
+      .sort((left, right) => left.hireDate.localeCompare(right.hireDate) || left.fullName.localeCompare(right.fullName));
+    active.forEach((employee, index) => {
+      employee.employeeCode = `LGM-EMP-${String(index + 1).padStart(4, "0")}`;
+    });
+    this.log(`Reset employee codes for ${active.length} active employees`);
+    return active;
+  }
+
   async listAttendance(date = todayKey()) {
     return this.attendanceForDate(date);
   }

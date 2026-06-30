@@ -50,6 +50,8 @@ export const api = {
   createEmployee: (token: string, body: FormData) => request<Employee>("/api/employees", { method: "POST", body }, token),
   updateEmployee: (token: string, id: string, body: FormData) => request<Employee>(`/api/employees/${id}`, { method: "PUT", body }, token),
   deleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}`, { method: "DELETE" }, token),
+  permanentlyDeleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}/permanent`, { method: "DELETE" }, token),
+  resetEmployeeCodes: (token: string) => request<Employee[]>("/api/employees/reset-codes", { method: "POST" }, token),
   attendance: (token: string, date?: string) => request<AttendanceRecord[]>(`/api/attendance${date ? `?date=${date}` : ""}`, {}, token),
   attendanceToday: (token: string, date?: string) => request<AttendanceRecord[]>(`/api/attendance/today${date ? `?date=${date}` : ""}`, {}, token),
   attendanceStats: (token: string, date?: string) => request<AttendanceStats>(`/api/attendance/stats${date ? `?date=${date}` : ""}`, {}, token),

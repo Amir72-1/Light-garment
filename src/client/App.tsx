@@ -125,7 +125,7 @@ export default function App() {
         </header>
         <section className="min-w-[360px] overflow-x-auto p-3 sm:p-4 lg:p-8">
           {active === "dashboard" && <Dashboard token={session.token} role={session.user.role} />}
-          {active === "employees" && <Employees token={session.token} />}
+          {active === "employees" && <Employees token={session.token} role={session.role} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
           {active === "payroll" && <Payroll token={session.token} role={session.user.role} />}
           {active === "inventory" && <Inventory token={session.token} />}
@@ -250,17 +250,24 @@ function Metric({ title, value, icon }: { title: string; value: string | number;
   return <Card><div className="flex items-center justify-between"><div><p className="text-sm text-slate-500">{title}</p><p className="mt-2 text-3xl font-black">{value}</p></div><div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">{icon}</div></div></Card>;
 }
 
-function Employees({ token }: { token: string }) {
+function Employees({ token, role }: { token: string; role: RoleName }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
+  const [view, setView] = useState<"active" | "archive">("active");
   const [selected, setSelected] = useState<Employee | null>(null);
+  const isOwner = role === "Owner";
   const params = new URLSearchParams({ search, pageSize: "50" });
   if (department) params.set("department", department);
   const employees = useQuery({ queryKey: ["employees", search, department], queryFn: () => api.employees(token, params) });
   const archivedEmployees = useQuery({ queryKey: ["archived-employees"], queryFn: () => api.archivedEmployees(token) });
-  const attendance = useQuery({ queryKey: ["attendance"], queryFn: () => api.attendance(token) });
-  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ["employees"] }); queryClient.invalidateQueries({ queryKey: ["archived-employees"] }); queryClient.invalidateQueries({ queryKey: ["attendance"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); };
+  const attendance = useQuery({ queryKey: ["attendance"], queryFn: () => api.attendance(token), enabled: view === "active" });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["employees"] });
+    queryClient.invalidateQueries({ queryKey: ["archived-employees"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
   const createEmployee = useMutation({
     mutationFn: (form: FormData) => api.createEmployee(token, form),
     onSuccess: invalidate
@@ -276,94 +283,214 @@ function Employees({ token }: { token: string }) {
       invalidate();
     }
   });
+  const permanentDeleteEmployee = useMutation({
+    mutationFn: (employeeId: string) => api.permanentlyDeleteEmployee(token, employeeId),
+    onSuccess: (_result, employeeId) => {
+      queryClient.setQueryData<Employee[]>(["archived-employees"], (current = []) => current.filter((item) => item.id !== employeeId));
+      setSelected(null);
+      invalidate();
+    }
+  });
+  const resetEmployeeCodes = useMutation({
+    mutationFn: () => api.resetEmployeeCodes(token),
+    onSuccess: () => {
+      invalidate();
+    }
+  });
   const checkIn = useMutation({ mutationFn: (id: string) => api.checkIn(token, id), onSuccess: invalidate });
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
+  const filteredArchived = (archivedEmployees.data ?? []).filter((employee) => {
+    const matchesSearch = !search || [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase()));
+    const matchesDepartment = !department || employee.department === department;
+    return matchesSearch && matchesDepartment;
+  });
+
+  const confirmPermanentDelete = (employee: Employee) => {
+    if (!window.confirm(`Permanently delete ${employee.fullName}? This removes the employee record and cannot be undone.`)) return;
+    permanentDeleteEmployee.mutate(employee.id);
+  };
+
+  const confirmResetCodes = () => {
+    if (!window.confirm("Reset employee codes for all active employees? Codes will be renumbered in hire-date order starting from LGM-EMP-0001.")) return;
+    resetEmployeeCodes.mutate();
+  };
+
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-        <div className="grid gap-6">
-          <Card>
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500">Register, search, filter, profile, and attendance.</p></div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
-                <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
-                  <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
-                </Select>
-              </div>
+      <div className="grid gap-6">
+        <Card>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div><h2 className="text-2xl font-black">Employee Management</h2><p className="text-sm text-slate-500 dark:text-slate-400">Register, search, archive, and manage employee records.</p></div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input placeholder="Search employees" value={search} onChange={(event) => setSearch(event.target.value)} />
+              <Select value={department} onChange={(event) => setDepartment(event.target.value)}>
+                <option value="">All departments</option><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
+              </Select>
             </div>
-          </Card>
-          <div className="grid gap-4">
-            {employees.data?.data.map((employee) => (
-              <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
-                <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" onClick={() => setSelected(employee)}>
-                  <Avatar employee={employee} />
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
-                    <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
-                    <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
-                  </div>
-                </button>
-                <div className="action-row md:justify-end">
-                  <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
-                  <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
-                  <Button variant="danger" onClick={() => deleteEmployee.mutate(employee)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
-                </div>
-              </Card>
-            ))}
           </div>
-          <Card>
-            <h3 className="text-lg font-bold">Daily attendance log</h3>
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[2200px] text-left text-sm">
-                <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
-                <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
-              </table>
+          <div className="action-row mt-4">
+            <Button variant={view === "active" ? "primary" : "secondary"} onClick={() => setView("active")}>Active ({employees.data?.total ?? 0})</Button>
+            <Button variant={view === "archive" ? "primary" : "secondary"} onClick={() => setView("archive")}>Archive ({archivedEmployees.data?.length ?? 0})</Button>
+            {isOwner && view === "active" && (
+              <Button variant="secondary" disabled={resetEmployeeCodes.isPending} onClick={confirmResetCodes}>
+                {resetEmployeeCodes.isPending ? "Resetting codes..." : "Reset employee codes"}
+              </Button>
+            )}
+          </div>
+        </Card>
+
+        {view === "active" ? (
+          <>
+            <div className="grid gap-4">
+              {employees.data?.data.map((employee) => (
+                <Card key={employee.id} className="grid gap-4 md:grid-cols-[1fr_auto]">
+                  <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800/60" onClick={() => setSelected(employee)}>
+                    <Avatar employee={employee} />
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{employee.phoneNumber}</p>
+                    </div>
+                  </button>
+                  <div className="action-row md:justify-end">
+                    <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
+                    <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
+                    <Button variant="danger" onClick={() => deleteEmployee.mutate(employee)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
+                  </div>
+                </Card>
+              ))}
             </div>
-          </Card>
-        </div>
-        <div className="grid gap-6 self-start">
-          <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form, formElement) => createEmployee.mutate(form, { onSuccess: () => formElement.reset() })} />
+            <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form, formElement) => createEmployee.mutate(form, { onSuccess: () => formElement.reset() })} />
+            <Card>
+              <h3 className="text-lg font-bold">Daily attendance log</h3>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[2200px] text-left text-sm">
+                  <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
+                  <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
+                </table>
+              </div>
+            </Card>
+          </>
+        ) : (
           <Card>
             <h3 className="text-lg font-bold">Archived employees</h3>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Archived records stay available for HR history.</p>
-            <div className="mt-4 grid gap-2">
-              {archivedEmployees.data?.length ? archivedEmployees.data.map((employee) => (
-                <div key={employee.id} className="rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
-                  <p className="font-semibold">{employee.fullName}</p>
-                  <p className="text-slate-500 dark:text-slate-400">{employee.employeeCode} · Archived {employee.archivedAt ? new Date(employee.archivedAt).toLocaleString() : ""}</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Archived records stay available for HR history. Owners can permanently delete records from the profile or list.</p>
+            <div className="mt-4 grid gap-3">
+              {filteredArchived.length ? filteredArchived.map((employee) => (
+                <div key={employee.id} className="grid gap-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
+                  <button className="flex items-center gap-4 rounded-2xl text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800/60" onClick={() => setSelected(employee)}>
+                    <Avatar employee={employee} />
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge><Badge className="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200">Archived</Badge></div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Archived {employee.archivedAt ? new Date(employee.archivedAt).toLocaleString() : ""}</p>
+                    </div>
+                  </button>
+                  {isOwner && (
+                    <div className="action-row md:justify-end">
+                      <Button variant="danger" disabled={permanentDeleteEmployee.isPending} onClick={() => confirmPermanentDelete(employee)}>
+                        {permanentDeleteEmployee.isPending ? "Deleting..." : "Delete permanently"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              )) : <p className="text-sm text-slate-500 dark:text-slate-400">No archived employees.</p>}
+              )) : <p className="text-sm text-slate-500 dark:text-slate-400">No archived employees match your search.</p>}
             </div>
           </Card>
-        </div>
+        )}
       </div>
       {selected && (
-        <EmployeeProfileDialog employee={selected} onClose={() => setSelected(null)} />
+        <EmployeeProfileDialog
+          employee={selected}
+          isOwner={isOwner}
+          onClose={() => setSelected(null)}
+          onPermanentDelete={confirmPermanentDelete}
+          permanentDeletePending={permanentDeleteEmployee.isPending}
+        />
       )}
     </>
   );
 }
 
-function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+function EmployeeProfileDialog({
+  employee,
+  isOwner,
+  onClose,
+  onPermanentDelete,
+  permanentDeletePending = false
+}: {
+  employee: Employee;
+  isOwner: boolean;
+  onClose: () => void;
+  onPermanentDelete: (employee: Employee) => void;
+  permanentDeletePending?: boolean;
+}) {
+  const [showPhoto, setShowPhoto] = useState(false);
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 id="employee-profile-title" className="text-xl font-black">Employee profile</h3>
-            <p className="text-sm text-slate-500">Full HR record for {employee.fullName}.</p>
+    <>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <Card className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 id="employee-profile-title" className="text-xl font-black">Employee profile</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Full HR record for {employee.fullName}.</p>
+            </div>
+            <Button variant="ghost" className="h-9 w-9 px-0" aria-label="Close employee profile" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-          <Button variant="ghost" className="h-9 w-9 px-0" aria-label="Close employee profile" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
-        <dl className="mt-4 grid gap-2 text-sm">
-          {Object.entries({ "Fayda number": employee.faydaNumber || "Not provided", Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
-        </dl>
-      </Card>
+          <div className="mt-4 flex items-center gap-4">
+            <Avatar employee={employee} large clickable onClick={() => employee.profileImageUrl && setShowPhoto(true)} />
+            <div>
+              <p className="font-black">{employee.fullName}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{employee.employeeCode}</p>
+              {employee.profileImageUrl && <p className="text-xs text-emerald-600 dark:text-emerald-400">Click photo to enlarge</p>}
+            </div>
+          </div>
+          <dl className="mt-4 grid gap-2 text-sm">
+            {Object.entries({
+              "Fayda number": employee.faydaNumber || "Not provided",
+              Phone: employee.phoneNumber,
+              Email: employee.email || "Not provided",
+              Address: employee.address,
+              Gender: employee.gender,
+              Department: employee.department,
+              Position: employee.position,
+              Salary: currency(employee.salary),
+              "Employment type": employee.employmentType,
+              "Hire date": employee.hireDate,
+              Status: employee.status,
+              ...(employee.archivedAt ? { Archived: new Date(employee.archivedAt).toLocaleString() } : {})
+            }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2 dark:border-slate-800"><dt className="text-slate-500 dark:text-slate-400">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
+          </dl>
+          {isOwner && employee.archivedAt && (
+            <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
+              <Button variant="danger" disabled={permanentDeletePending} onClick={() => onPermanentDelete(employee)}>
+                {permanentDeletePending ? "Deleting..." : "Delete permanently"}
+              </Button>
+            </div>
+          )}
+        </Card>
+      </div>
+      {showPhoto && employee.profileImageUrl && (
+        <EmployeePhotoPreview imageUrl={employee.profileImageUrl} name={employee.fullName} onClose={() => setShowPhoto(false)} />
+      )}
+    </>
+  );
+}
+
+function EmployeePhotoPreview({ imageUrl, name, onClose }: { imageUrl: string; name: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`${name} profile photo`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="relative max-h-[90vh] max-w-3xl">
+        <Button variant="ghost" className="absolute -top-12 right-0 h-9 w-9 px-0 text-white hover:bg-white/10" aria-label="Close photo preview" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+        <img src={imageUrl} alt={name} className="max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+        <p className="mt-3 text-center text-sm font-semibold text-white">{name}</p>
+      </div>
     </div>
   );
 }
@@ -393,8 +520,21 @@ function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData,
   );
 }
 
-function Avatar({ employee, large = false }: { employee: Employee; large?: boolean }) {
-  return employee.profileImageUrl ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", large ? "h-20 w-20" : "h-14 w-14")} /> : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700", large ? "h-20 w-20 text-2xl" : "h-14 w-14")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+function Avatar({ employee, large = false, clickable = false, onClick }: { employee: Employee; large?: boolean; clickable?: boolean; onClick?: () => void }) {
+  const sizeClass = large ? "h-20 w-20" : "h-14 w-14";
+  const content = employee.profileImageUrl
+    ? <img src={employee.profileImageUrl} alt={employee.fullName} className={cn("rounded-2xl object-cover", sizeClass)} />
+    : <div className={cn("grid place-items-center rounded-2xl bg-emerald-100 font-black text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200", sizeClass, large ? "text-2xl" : "")}>{employee.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div>;
+
+  if (clickable && onClick) {
+    return (
+      <button type="button" className={cn("shrink-0 overflow-hidden rounded-2xl transition hover:ring-2 hover:ring-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500", !employee.profileImageUrl && "cursor-default")} onClick={onClick} disabled={!employee.profileImageUrl} aria-label={employee.profileImageUrl ? `View ${employee.fullName} photo` : undefined}>
+        {content}
+      </button>
+    );
+  }
+
+  return content;
 }
 
 function Attendance({ token, role }: { token: string; role: RoleName }) {

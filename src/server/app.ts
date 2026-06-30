@@ -284,8 +284,12 @@ export async function createApp() {
     }));
   }));
 
-  app.get("/api/employees/archived", auth, allow("Owner", "HR/Admin"), asyncRoute(async (_request, response) => {
+  app.get("/api/employees/archived", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (_request, response) => {
     response.json(await repository.listArchivedEmployees());
+  }));
+
+  app.post("/api/employees/reset-codes", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json(await repository.resetEmployeeCodes());
   }));
 
   app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), upload.single("profilePicture"), asyncRoute(async (request, response) => {
@@ -325,6 +329,11 @@ export async function createApp() {
 
   app.delete("/api/employees/:id", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
     const deleted = await repository.deleteEmployee(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
+  app.delete("/api/employees/:id/permanent", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.permanentlyDeleteEmployee(String(request.params.id));
     response.status(deleted ? 204 : 404).end();
   }));
 

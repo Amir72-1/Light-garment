@@ -383,6 +383,37 @@ export class PrismaRepository {
     return Boolean(row);
   }
 
+  async permanentlyDeleteEmployee(employeeId: string) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee?.archivedAt) return false;
+    await this.prisma.user.updateMany({ where: { employeeId }, data: { employeeId: null } });
+    await this.prisma.employee.delete({ where: { id: employeeId } });
+    return true;
+  }
+
+  async resetEmployeeCodes() {
+    const active = await this.prisma.employee.findMany({
+      where: { archivedAt: null },
+      orderBy: [{ hireDate: "asc" }, { fullName: "asc" }]
+    });
+    await this.prisma.$transaction(async (tx) => {
+      for (const employee of active) {
+        await tx.employee.update({ where: { id: employee.id }, data: { employeeCode: `TMP-${employee.id}` } });
+      }
+      for (const [index, employee] of active.entries()) {
+        await tx.employee.update({
+          where: { id: employee.id },
+          data: { employeeCode: `LGM-EMP-${String(index + 1).padStart(4, "0")}` }
+        });
+      }
+    });
+    const rows = await this.prisma.employee.findMany({
+      where: { archivedAt: null },
+      orderBy: [{ hireDate: "asc" }, { fullName: "asc" }]
+    });
+    return rows.map(employeeFromDb);
+  }
+
   async listAttendance(date = todayKey()) {
     return this.attendanceToday(date);
   }
