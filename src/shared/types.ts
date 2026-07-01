@@ -32,6 +32,7 @@ export interface Employee {
   fullName: string;
   profileImageUrl?: string;
   idImageUrl?: string;
+  idImageBackUrl?: string;
   faydaNumber?: string;
   phoneNumber: string;
   email?: string;

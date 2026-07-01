@@ -296,12 +296,15 @@ export async function createApp() {
     const files = request.files as Record<string, Express.Multer.File[]> | undefined;
     return {
       profilePicture: files?.profilePicture?.[0],
-      idDocument: files?.idDocument?.[0]
+      idDocumentFront: files?.idDocumentFront?.[0] ?? files?.idDocument?.[0],
+      idDocumentBack: files?.idDocumentBack?.[0]
     };
   }
 
   app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.fields([
     { name: "profilePicture", maxCount: 1 },
+    { name: "idDocumentFront", maxCount: 1 },
+    { name: "idDocumentBack", maxCount: 1 },
     { name: "idDocument", maxCount: 1 }
   ]), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.parse(request.body);
@@ -315,7 +318,8 @@ export async function createApp() {
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
-      idImageUrl: files.idDocument ? imageFileToDataUrl(files.idDocument) : undefined
+      idImageUrl: files.idDocumentFront ? imageFileToDataUrl(files.idDocumentFront) : undefined,
+      idImageBackUrl: files.idDocumentBack ? imageFileToDataUrl(files.idDocumentBack) : undefined
     });
     response.status(201).json(employee);
   }));
@@ -331,6 +335,8 @@ export async function createApp() {
 
   app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.fields([
     { name: "profilePicture", maxCount: 1 },
+    { name: "idDocumentFront", maxCount: 1 },
+    { name: "idDocumentBack", maxCount: 1 },
     { name: "idDocument", maxCount: 1 }
   ]), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.partial().parse(request.body);
@@ -347,7 +353,8 @@ export async function createApp() {
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
-      idImageUrl: files.idDocument ? imageFileToDataUrl(files.idDocument) : undefined
+      idImageUrl: files.idDocumentFront ? imageFileToDataUrl(files.idDocumentFront) : undefined,
+      idImageBackUrl: files.idDocumentBack ? imageFileToDataUrl(files.idDocumentBack) : undefined
     });
     if (!employee) {
       response.status(404).json({ message: "Employee not found" });

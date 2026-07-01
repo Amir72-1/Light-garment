@@ -103,10 +103,12 @@ describe("Light Garment ERP API", () => {
       .field("employmentType", "Full-time")
       .field("hireDate", "2026-01-01")
       .field("status", "Active")
-      .attach("idDocument", png, { filename: "id.png", contentType: "image/png" })
+      .attach("idDocumentFront", png, { filename: "id-front.png", contentType: "image/png" })
+      .attach("idDocumentBack", png, { filename: "id-back.png", contentType: "image/png" })
       .expect(201);
 
     expect(create.body.idImageUrl).toMatch(/^data:image\/png;base64,/);
+    expect(create.body.idImageBackUrl).toMatch(/^data:image\/png;base64,/);
 
     const check = await request(app)
       .get("/api/employees/check-fayda/FIN-SCAN-0001")

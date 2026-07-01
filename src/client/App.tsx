@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
@@ -21,7 +21,7 @@ import {
   X
 } from "lucide-react";
 import { api } from "./api";
-import { scanEmployeeId } from "./idOcr";
+import { scanEmployeeIdSides } from "./idOcr";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
 import {
   clearStoredSession,
@@ -594,6 +594,25 @@ function EmployeeProfileDialog({
               ...(employee.archivedAt ? { Archived: new Date(employee.archivedAt).toLocaleString() } : {})
             }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2 dark:border-slate-800"><dt className="text-slate-500 dark:text-slate-400">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
           </dl>
+          {(employee.idImageUrl || employee.idImageBackUrl) && (
+            <div className="mt-4 border-t pt-4 dark:border-slate-800">
+              <p className="text-sm font-semibold">ID card images</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {employee.idImageUrl && (
+                  <div>
+                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Front page</p>
+                    <img src={employee.idImageUrl} alt={`${employee.fullName} ID front`} className="h-32 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700" />
+                  </div>
+                )}
+                {employee.idImageBackUrl && (
+                  <div>
+                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Back page</p>
+                    <img src={employee.idImageBackUrl} alt={`${employee.fullName} ID back`} className="h-32 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {isOwner && employee.archivedAt && (
             <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
               <Button variant="danger" disabled={permanentDeletePending} onClick={() => onPermanentDelete(employee)}>
@@ -642,14 +661,18 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
     status: "Active" as "Active" | "Inactive"
   });
   const [profileFile, setProfileFile] = useState<File | null>(null);
-  const [idFile, setIdFile] = useState<File | null>(null);
-  const [idPreview, setIdPreview] = useState<string | null>(null);
+  const [idFrontFile, setIdFrontFile] = useState<File | null>(null);
+  const [idBackFile, setIdBackFile] = useState<File | null>(null);
+  const [idFrontPreview, setIdFrontPreview] = useState<string | null>(null);
+  const [idBackPreview, setIdBackPreview] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [faydaConflict, setFaydaConflict] = useState<string | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const frontUploadRef = useRef<HTMLInputElement>(null);
+  const frontCameraRef = useRef<HTMLInputElement>(null);
+  const backUploadRef = useRef<HTMLInputElement>(null);
+  const backCameraRef = useRef<HTMLInputElement>(null);
 
   const setField = (field: keyof typeof values, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -669,17 +692,29 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
     }
   };
 
-  const processIdImage = async (file: File) => {
-    setIdFile(file);
-    setIdPreview((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return URL.createObjectURL(file);
-    });
+  const processIdSide = async (side: "front" | "back", file: File) => {
+    const nextFront = side === "front" ? file : idFrontFile;
+    const nextBack = side === "back" ? file : idBackFile;
+
+    if (side === "front") {
+      setIdFrontFile(file);
+      setIdFrontPreview((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return URL.createObjectURL(file);
+      });
+    } else {
+      setIdBackFile(file);
+      setIdBackPreview((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return URL.createObjectURL(file);
+      });
+    }
+
     setScanning(true);
     setScanProgress(0);
-    setScanMessage("Reading ID text...");
+    setScanMessage(`Reading ID ${side}...`);
     try {
-      const { fields } = await scanEmployeeId(file, setScanProgress);
+      const { fields } = await scanEmployeeIdSides({ front: nextFront, back: nextBack }, setScanProgress);
       setValues((current) => ({
         ...current,
         fullName: fields.fullName || current.fullName,
@@ -688,7 +723,8 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
         gender: fields.gender || current.gender
       }));
       if (fields.faydaNumber) await verifyFaydaNumber(fields.faydaNumber);
-      setScanMessage(fields.fullName || fields.faydaNumber ? "ID scanned. Review the auto-filled fields before saving." : "Scan finished. Fill any missing fields manually.");
+      const hasData = Boolean(fields.fullName || fields.faydaNumber || fields.dateOfBirth || fields.gender);
+      setScanMessage(hasData ? "ID front/back scanned. Review the auto-filled fields before saving." : "Scan finished. Fill any missing fields manually.");
     } catch {
       setScanMessage("Could not read the ID image. You can still enter details manually.");
     } finally {
@@ -697,34 +733,46 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
     }
   };
 
+  const renderIdSideCapture = (side: "front" | "back", label: string, preview: string | null, uploadRef: RefObject<HTMLInputElement | null>, cameraRef: RefObject<HTMLInputElement | null>) => (
+    <div className="rounded-xl border border-emerald-200 bg-white/70 p-3 dark:border-emerald-900 dark:bg-slate-950/40">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold text-emerald-950 dark:text-emerald-100">{label}</p>
+          <p className="text-xs text-emerald-900/80 dark:text-emerald-200/80">Upload or capture the {side} of the ID card.</p>
+        </div>
+        <div className="action-row">
+          <Button type="button" variant="secondary" disabled={scanning} onClick={() => uploadRef.current?.click()}>
+            <Upload className="h-4 w-4" /> Upload
+          </Button>
+          <Button type="button" variant="secondary" disabled={scanning} onClick={() => cameraRef.current?.click()}>
+            <ScanLine className="h-4 w-4" /> Camera
+          </Button>
+        </div>
+      </div>
+      <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdSide(side, file); event.target.value = ""; }} />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdSide(side, file); event.target.value = ""; }} />
+      {preview ? (
+        <img src={preview} alt={`${label} preview`} className="mt-3 h-28 w-full max-w-[220px] rounded-xl border border-emerald-200 object-cover dark:border-emerald-800" />
+      ) : (
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">No {side} image yet.</p>
+      )}
+    </div>
+  );
+
   return (
     <Card>
       <h3 className="text-lg font-bold">Add employee</h3>
       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-emerald-950 dark:text-emerald-100">Scan employee ID</p>
-            <p className="text-sm text-emerald-900/80 dark:text-emerald-200/80">Upload or capture a Fayda/national ID photo to auto-fill name, ID number, date of birth, and gender.</p>
-          </div>
-          <div className="action-row">
-            <Button type="button" variant="secondary" disabled={scanning} onClick={() => uploadInputRef.current?.click()}>
-              <Upload className="h-4 w-4" /> Upload ID
-            </Button>
-            <Button type="button" variant="secondary" disabled={scanning} onClick={() => cameraInputRef.current?.click()}>
-              <ScanLine className="h-4 w-4" /> Take photo
-            </Button>
-          </div>
+        <div>
+          <p className="font-semibold text-emerald-950 dark:text-emerald-100">Scan employee ID</p>
+          <p className="text-sm text-emerald-900/80 dark:text-emerald-200/80">Add both the front and back of the Fayda/national ID. OCR reads both sides to auto-fill name, ID number, date of birth, and gender.</p>
         </div>
-        <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdImage(file); event.target.value = ""; }} />
-        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdImage(file); event.target.value = ""; }} />
-        {idPreview && (
-          <div className="mt-4 flex items-start gap-4">
-            <img src={idPreview} alt="Captured employee ID" className="h-28 w-44 rounded-xl border border-emerald-200 object-cover dark:border-emerald-800" />
-            <div className="text-sm text-emerald-950 dark:text-emerald-100">
-              <p className="font-semibold">ID image ready</p>
-              <p className="mt-1 text-emerald-900/80 dark:text-emerald-200/80">The ID image is stored securely with the employee record when you save.</p>
-            </div>
-          </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {renderIdSideCapture("front", "ID front page", idFrontPreview, frontUploadRef, frontCameraRef)}
+          {renderIdSideCapture("back", "ID back page", idBackPreview, backUploadRef, backCameraRef)}
+        </div>
+        {(idFrontPreview || idBackPreview) && (
+          <p className="mt-3 text-sm text-emerald-950 dark:text-emerald-100">Both ID images are stored securely with the employee record when you save.</p>
         )}
         {scanning && (
           <div className="mt-4">
@@ -744,7 +792,8 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
           const formData = new FormData();
           Object.entries(values).forEach(([key, value]) => formData.append(key, value));
           if (profileFile) formData.append("profilePicture", profileFile);
-          if (idFile) formData.append("idDocument", idFile);
+          if (idFrontFile) formData.append("idDocumentFront", idFrontFile);
+          if (idBackFile) formData.append("idDocumentBack", idBackFile);
           onSubmit(formData);
         }}
       >

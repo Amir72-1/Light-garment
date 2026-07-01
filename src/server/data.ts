@@ -54,7 +54,8 @@ function sanitizeEmployee(employee: Employee): Employee {
   return {
     ...employee,
     profileImageUrl: normalizeProfileImageUrl(employee.profileImageUrl) ?? "",
-    idImageUrl: normalizeProfileImageUrl(employee.idImageUrl) ?? undefined
+    idImageUrl: normalizeProfileImageUrl(employee.idImageUrl) ?? undefined,
+    idImageBackUrl: normalizeProfileImageUrl(employee.idImageBackUrl) ?? undefined
   };
 }
 
