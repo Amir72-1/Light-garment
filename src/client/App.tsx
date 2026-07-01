@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeDollarSign,
@@ -12,13 +12,16 @@ import {
   Monitor,
   Moon,
   PackagePlus,
+  ScanLine,
   Settings,
   Shirt,
   Sun,
+  Upload,
   Users,
   X
 } from "lucide-react";
 import { api } from "./api";
+import { scanEmployeeId } from "./idOcr";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
 import {
   clearStoredSession,
@@ -28,7 +31,7 @@ import {
   sessionExpiryMessage,
   touchSessionActivity
 } from "./session";
-import type { AttendanceRecord, AttendanceSettings, Employee, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Department, Employee, EmploymentType, Gender, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, Sale, UserSession } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
@@ -390,9 +393,13 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
     queryClient.invalidateQueries({ queryKey: ["attendance"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   };
+  const [employeeFormKey, setEmployeeFormKey] = useState(0);
   const createEmployee = useMutation({
     mutationFn: (form: FormData) => api.createEmployee(token, form),
-    onSuccess: invalidate
+    onSuccess: () => {
+      invalidate();
+      setEmployeeFormKey((value) => value + 1);
+    }
   });
   const deleteEmployee = useMutation({
     mutationFn: async (employee: Employee) => {
@@ -483,7 +490,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                 </Card>
               ))}
             </div>
-            <EmployeeForm pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form, formElement) => createEmployee.mutate(form, { onSuccess: () => formElement.reset() })} />
+            <EmployeeForm key={employeeFormKey} token={token} pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form) => createEmployee.mutate(form)} />
             <Card>
               <h3 className="text-lg font-bold">Daily attendance log</h3>
               <div className="mt-4 overflow-x-auto">
@@ -617,26 +624,184 @@ function EmployeePhotoPreview({ imageUrl, name, onClose }: { imageUrl: string; n
   );
 }
 
-function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData, formElement: HTMLFormElement) => void; pending: boolean; error?: string }) {
+function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSubmit: (form: FormData) => void; pending: boolean; error?: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [values, setValues] = useState({
+    fullName: "",
+    faydaNumber: "",
+    phoneNumber: "",
+    email: "",
+    address: "",
+    gender: "Female" as Gender,
+    dateOfBirth: "",
+    position: "",
+    department: "Production" as Department,
+    salary: "",
+    employmentType: "Full-time" as EmploymentType,
+    hireDate: today,
+    status: "Active" as "Active" | "Inactive"
+  });
+  const [profileFile, setProfileFile] = useState<File | null>(null);
+  const [idFile, setIdFile] = useState<File | null>(null);
+  const [idPreview, setIdPreview] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [faydaConflict, setFaydaConflict] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const setField = (field: keyof typeof values, value: string) => {
+    setValues((current) => ({ ...current, [field]: value }));
+  };
+
+  const verifyFaydaNumber = async (faydaNumber: string) => {
+    const trimmed = faydaNumber.trim();
+    if (trimmed.length < 4) {
+      setFaydaConflict(null);
+      return;
+    }
+    try {
+      const result = await api.checkFaydaNumber(token, trimmed);
+      setFaydaConflict(result.available ? null : "This Fayda ID number is already registered.");
+    } catch {
+      setFaydaConflict(null);
+    }
+  };
+
+  const processIdImage = async (file: File) => {
+    setIdFile(file);
+    setIdPreview((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return URL.createObjectURL(file);
+    });
+    setScanning(true);
+    setScanProgress(0);
+    setScanMessage("Reading ID text...");
+    try {
+      const { fields } = await scanEmployeeId(file, setScanProgress);
+      setValues((current) => ({
+        ...current,
+        fullName: fields.fullName || current.fullName,
+        faydaNumber: fields.faydaNumber || current.faydaNumber,
+        dateOfBirth: fields.dateOfBirth || current.dateOfBirth,
+        gender: fields.gender || current.gender
+      }));
+      if (fields.faydaNumber) await verifyFaydaNumber(fields.faydaNumber);
+      setScanMessage(fields.fullName || fields.faydaNumber ? "ID scanned. Review the auto-filled fields before saving." : "Scan finished. Fill any missing fields manually.");
+    } catch {
+      setScanMessage("Could not read the ID image. You can still enter details manually.");
+    } finally {
+      setScanning(false);
+      setScanProgress(0);
+    }
+  };
+
   return (
     <Card>
       <h3 className="text-lg font-bold">Add employee</h3>
-      <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget), event.currentTarget); }}>
-        <Field label="Full name"><Input name="fullName" required /></Field>
-        <Field label="Fayda number"><Input name="faydaNumber" placeholder="FIN / Fayda ID number" /></Field>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Phone"><Input name="phoneNumber" required /></Field>
-          <Field label="Email (optional)"><Input name="email" type="email" placeholder="Leave blank if none" /></Field>
+      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-emerald-950 dark:text-emerald-100">Scan employee ID</p>
+            <p className="text-sm text-emerald-900/80 dark:text-emerald-200/80">Upload or capture a Fayda/national ID photo to auto-fill name, ID number, date of birth, and gender.</p>
+          </div>
+          <div className="action-row">
+            <Button type="button" variant="secondary" disabled={scanning} onClick={() => uploadInputRef.current?.click()}>
+              <Upload className="h-4 w-4" /> Upload ID
+            </Button>
+            <Button type="button" variant="secondary" disabled={scanning} onClick={() => cameraInputRef.current?.click()}>
+              <ScanLine className="h-4 w-4" /> Take photo
+            </Button>
+          </div>
         </div>
-        <p className="-mt-2 text-xs text-slate-500">Employees can be registered without an email address.</p>
-        <Field label="Address"><Textarea name="address" rows={2} required /></Field>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Gender"><Select name="gender" required><option>Female</option><option>Male</option><option>Other</option></Select></Field><Field label="Date of birth"><Input name="dateOfBirth" placeholder="YYYY-MM-DD" required /></Field></div>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Position"><Input name="position" required placeholder="Tailor" /></Field><Field label="Department"><Select name="department" required><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option></Select></Field></div>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Salary"><Input name="salary" type="number" required /></Field><Field label="Employment type"><Select name="employmentType" required><option>Full-time</option><option>Part-time</option><option>Contract</option></Select></Field></div>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Hire date"><Input name="hireDate" placeholder="YYYY-MM-DD" required /></Field><Field label="Status"><Select name="status"><option>Active</option><option>Inactive</option></Select></Field></div>
-        <Field label="Profile picture"><Input name="profilePicture" type="file" accept="image/*" /></Field>
+        <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdImage(file); event.target.value = ""; }} />
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processIdImage(file); event.target.value = ""; }} />
+        {idPreview && (
+          <div className="mt-4 flex items-start gap-4">
+            <img src={idPreview} alt="Captured employee ID" className="h-28 w-44 rounded-xl border border-emerald-200 object-cover dark:border-emerald-800" />
+            <div className="text-sm text-emerald-950 dark:text-emerald-100">
+              <p className="font-semibold">ID image ready</p>
+              <p className="mt-1 text-emerald-900/80 dark:text-emerald-200/80">The ID image is stored securely with the employee record when you save.</p>
+            </div>
+          </div>
+        )}
+        {scanning && (
+          <div className="mt-4">
+            <div className="h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-900">
+              <div className="h-full bg-emerald-600 transition-all" style={{ width: `${Math.round(scanProgress * 100)}%` }} />
+            </div>
+            <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-200">Scanning ID... {Math.round(scanProgress * 100)}%</p>
+          </div>
+        )}
+        {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-emerald-900 dark:text-emerald-200">{scanMessage}</p>}
+      </div>
+      <form
+        className="mt-4 grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (faydaConflict) return;
+          const formData = new FormData();
+          Object.entries(values).forEach(([key, value]) => formData.append(key, value));
+          if (profileFile) formData.append("profilePicture", profileFile);
+          if (idFile) formData.append("idDocument", idFile);
+          onSubmit(formData);
+        }}
+      >
+        <Field label="Full name"><Input value={values.fullName} onChange={(event) => setField("fullName", event.target.value)} required /></Field>
+        <Field label="Fayda number">
+          <Input
+            value={values.faydaNumber}
+            onChange={(event) => {
+              setField("faydaNumber", event.target.value);
+              void verifyFaydaNumber(event.target.value);
+            }}
+            onBlur={(event) => verifyFaydaNumber(event.target.value)}
+            placeholder="FIN / Fayda ID number"
+          />
+        </Field>
+        {faydaConflict && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{faydaConflict}</p>}
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Phone"><Input value={values.phoneNumber} onChange={(event) => setField("phoneNumber", event.target.value)} required /></Field>
+          <Field label="Email (optional)"><Input value={values.email} onChange={(event) => setField("email", event.target.value)} type="email" placeholder="Leave blank if none" /></Field>
+        </div>
+        <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">Employees can be registered without an email address.</p>
+        <Field label="Address"><Textarea value={values.address} onChange={(event) => setField("address", event.target.value)} rows={2} required /></Field>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Gender">
+            <Select value={values.gender} onChange={(event) => setField("gender", event.target.value)}>
+              <option>Female</option><option>Male</option><option>Other</option>
+            </Select>
+          </Field>
+          <Field label="Date of birth"><Input value={values.dateOfBirth} onChange={(event) => setField("dateOfBirth", event.target.value)} placeholder="YYYY-MM-DD" required /></Field>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Position"><Input value={values.position} onChange={(event) => setField("position", event.target.value)} required placeholder="Tailor" /></Field>
+          <Field label="Department">
+            <Select value={values.department} onChange={(event) => setField("department", event.target.value)}>
+              <option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Salary"><Input value={values.salary} onChange={(event) => setField("salary", event.target.value)} type="number" required /></Field>
+          <Field label="Employment type">
+            <Select value={values.employmentType} onChange={(event) => setField("employmentType", event.target.value)}>
+              <option>Full-time</option><option>Part-time</option><option>Contract</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Hire date"><Input value={values.hireDate} onChange={(event) => setField("hireDate", event.target.value)} placeholder="YYYY-MM-DD" required /></Field>
+          <Field label="Status">
+            <Select value={values.status} onChange={(event) => setField("status", event.target.value)}>
+              <option>Active</option><option>Inactive</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="Profile picture"><Input type="file" accept="image/*" capture="user" onChange={(event) => setProfileFile(event.target.files?.[0] ?? null)} /></Field>
         {error && <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p>}
-        <Button disabled={pending}>{pending ? "Saving..." : "Register employee"}</Button>
+        <Button disabled={pending || Boolean(faydaConflict) || scanning}>{pending ? "Saving..." : "Register employee"}</Button>
       </form>
     </Card>
   );

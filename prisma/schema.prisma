@@ -129,6 +129,7 @@ model Employee {
   employeeCode   String          @unique
   fullName       String
   profileImageUrl String?         @db.Text
+  idImageUrl      String?         @db.Text
   faydaNumber    String?         @unique
   phoneNumber    String
   email          String?         @unique

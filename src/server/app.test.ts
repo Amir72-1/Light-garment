@@ -85,6 +85,54 @@ describe("Light Garment ERP API", () => {
     expect(fetched.body.profileImageUrl).toBe(create.body.profileImageUrl);
   });
 
+  it("stores employee ID images and blocks duplicate Fayda numbers", async () => {
+    const { app, token } = await login();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "ID Scan Employee")
+      .field("faydaNumber", "FIN-SCAN-0001")
+      .field("phoneNumber", "+251900000002")
+      .field("address", "Scan office")
+      .field("gender", "Female")
+      .field("dateOfBirth", "1995-05-05")
+      .field("position", "Clerk")
+      .field("department", "Admin")
+      .field("salary", "11000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .attach("idDocument", png, { filename: "id.png", contentType: "image/png" })
+      .expect(201);
+
+    expect(create.body.idImageUrl).toMatch(/^data:image\/png;base64,/);
+
+    const check = await request(app)
+      .get("/api/employees/check-fayda/FIN-SCAN-0001")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(check.body.available).toBe(false);
+
+    await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Duplicate Fayda")
+      .field("faydaNumber", "FIN-SCAN-0001")
+      .field("phoneNumber", "+251900000003")
+      .field("address", "Duplicate office")
+      .field("gender", "Male")
+      .field("dateOfBirth", "1990-01-01")
+      .field("position", "Clerk")
+      .field("department", "Admin")
+      .field("salary", "9000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(409);
+  });
+
   it("archives employees instead of permanently deleting them", async () => {
     const { app, token } = await login();
     const create = await request(app)

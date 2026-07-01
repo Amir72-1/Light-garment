@@ -53,7 +53,8 @@ const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 
 function sanitizeEmployee(employee: Employee): Employee {
   return {
     ...employee,
-    profileImageUrl: normalizeProfileImageUrl(employee.profileImageUrl) ?? ""
+    profileImageUrl: normalizeProfileImageUrl(employee.profileImageUrl) ?? "",
+    idImageUrl: normalizeProfileImageUrl(employee.idImageUrl) ?? undefined
   };
 }
 
@@ -373,6 +374,12 @@ export class DemoRepository {
       .filter((employee) => employee.archivedAt)
       .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)))
       .map(sanitizeEmployee);
+  }
+
+  async faydaNumberExists(faydaNumber: string) {
+    const normalized = faydaNumber.trim().toLowerCase();
+    if (!normalized) return false;
+    return this.employees.some((employee) => employee.faydaNumber?.trim().toLowerCase() === normalized);
   }
 
   async createEmployee(input: EmployeeInput) {

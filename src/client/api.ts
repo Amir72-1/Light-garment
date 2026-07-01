@@ -48,6 +48,7 @@ export const api = {
   employees: (token: string, params: URLSearchParams) => request<Paginated<Employee>>(`/api/employees?${params.toString()}`, {}, token),
   archivedEmployees: (token: string) => request<Employee[]>("/api/employees/archived", {}, token),
   createEmployee: (token: string, body: FormData) => request<Employee>("/api/employees", { method: "POST", body }, token),
+  checkFaydaNumber: (token: string, faydaNumber: string) => request<{ available: boolean; faydaNumber: string }>(`/api/employees/check-fayda/${encodeURIComponent(faydaNumber)}`, {}, token),
   updateEmployee: (token: string, id: string, body: FormData) => request<Employee>(`/api/employees/${id}`, { method: "PUT", body }, token),
   deleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}`, { method: "DELETE" }, token),
   permanentlyDeleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}/permanent`, { method: "DELETE" }, token),

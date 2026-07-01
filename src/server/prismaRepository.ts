@@ -78,6 +78,7 @@ function employeeFromDb(row: any): Employee {
     employeeCode: row.employeeCode,
     fullName: row.fullName,
     profileImageUrl: normalizeProfileImageUrl(row.profileImageUrl) ?? "",
+    idImageUrl: normalizeProfileImageUrl(row.idImageUrl) ?? undefined,
     faydaNumber: row.faydaNumber ?? undefined,
     phoneNumber: row.phoneNumber,
     email: row.email ?? undefined,
@@ -332,6 +333,12 @@ export class PrismaRepository {
     return rows.map(employeeFromDb);
   }
 
+  async faydaNumberExists(faydaNumber: string) {
+    if (!faydaNumber.trim()) return false;
+    const row = await this.prisma.employee.findFirst({ where: { faydaNumber: { equals: faydaNumber, mode: "insensitive" } } });
+    return Boolean(row);
+  }
+
   async createEmployee(input: EmployeeInput) {
     const count = await this.prisma.employee.count();
     const row = await this.prisma.employee.create({
@@ -340,6 +347,7 @@ export class PrismaRepository {
         fullName: input.fullName,
         faydaNumber: input.faydaNumber || null,
         profileImageUrl: input.profileImageUrl || null,
+        idImageUrl: input.idImageUrl || null,
         phoneNumber: input.phoneNumber,
         email: input.email || null,
         address: input.address,
@@ -363,6 +371,7 @@ export class PrismaRepository {
         fullName: input.fullName,
         faydaNumber: input.faydaNumber,
         profileImageUrl: input.profileImageUrl,
+        idImageUrl: input.idImageUrl,
         phoneNumber: input.phoneNumber,
         email: input.email,
         address: input.address,

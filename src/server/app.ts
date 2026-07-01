@@ -286,13 +286,36 @@ export async function createApp() {
     response.json(await repository.resetEmployeeCodes());
   }));
 
-  app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.single("profilePicture"), asyncRoute(async (request, response) => {
+  app.get("/api/employees/check-fayda/:number", auth, allow("Owner", "Manager", "HR/Admin"), asyncRoute(async (request, response) => {
+    const number = decodeURIComponent(String(request.params.number)).trim();
+    const available = number ? !(await repository.faydaNumberExists(number)) : true;
+    response.json({ available, faydaNumber: number });
+  }));
+
+  function employeeUploadFiles(request: AuthedRequest) {
+    const files = request.files as Record<string, Express.Multer.File[]> | undefined;
+    return {
+      profilePicture: files?.profilePicture?.[0],
+      idDocument: files?.idDocument?.[0]
+    };
+  }
+
+  app.post("/api/employees", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.fields([
+    { name: "profilePicture", maxCount: 1 },
+    { name: "idDocument", maxCount: 1 }
+  ]), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.parse(request.body);
+    const files = employeeUploadFiles(request);
+    if (parsed.faydaNumber && await repository.faydaNumberExists(parsed.faydaNumber)) {
+      response.status(409).json({ message: "This Fayda ID number is already registered." });
+      return;
+    }
     const employee = await repository.createEmployee({
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
-      profileImageUrl: request.file ? imageFileToDataUrl(request.file) : undefined
+      profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
+      idImageUrl: files.idDocument ? imageFileToDataUrl(files.idDocument) : undefined
     });
     response.status(201).json(employee);
   }));
@@ -306,13 +329,25 @@ export async function createApp() {
     response.json(employee);
   }));
 
-  app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.single("profilePicture"), asyncRoute(async (request, response) => {
+  app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.fields([
+    { name: "profilePicture", maxCount: 1 },
+    { name: "idDocument", maxCount: 1 }
+  ]), asyncRoute(async (request, response) => {
     const parsed = employeeSchema.partial().parse(request.body);
+    const files = employeeUploadFiles(request);
+    if (parsed.faydaNumber && await repository.faydaNumberExists(parsed.faydaNumber)) {
+      const existing = await repository.getEmployee(String(request.params.id));
+      if (!existing || existing.faydaNumber?.toLowerCase() !== parsed.faydaNumber.toLowerCase()) {
+        response.status(409).json({ message: "This Fayda ID number is already registered." });
+        return;
+      }
+    }
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
       email: parsed.email || undefined,
-      profileImageUrl: request.file ? imageFileToDataUrl(request.file) : undefined
+      profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
+      idImageUrl: files.idDocument ? imageFileToDataUrl(files.idDocument) : undefined
     });
     if (!employee) {
       response.status(404).json({ message: "Employee not found" });
