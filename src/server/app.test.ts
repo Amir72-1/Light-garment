@@ -135,6 +135,47 @@ describe("Light Garment ERP API", () => {
       .expect(409);
   });
 
+  it("lets owner update employee records including NIB bank account number", async () => {
+    const { app, token } = await login();
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Editable Employee")
+      .field("faydaNumber", "FIN-EDIT-0001")
+      .field("phoneNumber", "+251900000010")
+      .field("address", "Edit office")
+      .field("gender", "Female")
+      .field("dateOfBirth", "1992-02-02")
+      .field("position", "Clerk")
+      .field("department", "Admin")
+      .field("salary", "12000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(201);
+
+    const update = await request(app)
+      .put(`/api/employees/${create.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "Editable Employee Updated")
+      .field("bankAccountNumber", "NIB-1234567890")
+      .field("phoneNumber", "+251900000010")
+      .field("address", "Updated office")
+      .field("gender", "Female")
+      .field("dateOfBirth", "1992-02-02")
+      .field("position", "Senior Clerk")
+      .field("department", "Admin")
+      .field("salary", "14000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(200);
+
+    expect(update.body.fullName).toBe("Editable Employee Updated");
+    expect(update.body.bankAccountNumber).toBe("NIB-1234567890");
+    expect(update.body.position).toBe("Senior Clerk");
+  });
+
   it("archives employees instead of permanently deleting them", async () => {
     const { app, token } = await login();
     const create = await request(app)
