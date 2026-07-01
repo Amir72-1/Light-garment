@@ -556,6 +556,8 @@ function EmployeeProfileDialog({
   permanentDeletePending?: boolean;
 }) {
   const [showPhoto, setShowPhoto] = useState(false);
+  const [showIdImages, setShowIdImages] = useState(false);
+  const [idPreview, setIdPreview] = useState<{ url: string; label: string } | null>(null);
 
   return (
     <>
@@ -596,21 +598,41 @@ function EmployeeProfileDialog({
           </dl>
           {(employee.idImageUrl || employee.idImageBackUrl) && (
             <div className="mt-4 border-t pt-4 dark:border-slate-800">
-              <p className="text-sm font-semibold">ID card images</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {employee.idImageUrl && (
-                  <div>
-                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Front page</p>
-                    <img src={employee.idImageUrl} alt={`${employee.fullName} ID front`} className="h-32 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700" />
-                  </div>
-                )}
-                {employee.idImageBackUrl && (
-                  <div>
-                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Back page</p>
-                    <img src={employee.idImageBackUrl} alt={`${employee.fullName} ID back`} className="h-32 w-full rounded-xl border border-slate-200 object-cover dark:border-slate-700" />
-                  </div>
-                )}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold">ID card images</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Hidden for privacy. Open to view, then click an image to enlarge.</p>
+                </div>
+                <Button type="button" variant="secondary" onClick={() => setShowIdImages((value) => !value)}>
+                  {showIdImages ? "Hide ID images" : "View ID images"}
+                </Button>
               </div>
+              {showIdImages && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {employee.idImageUrl && (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-slate-200 p-3 text-left transition hover:border-emerald-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
+                      onClick={() => setIdPreview({ url: employee.idImageUrl!, label: "ID front page" })}
+                    >
+                      <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Front page</p>
+                      <img src={employee.idImageUrl} alt={`${employee.fullName} ID front`} className="h-32 w-full rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
+                      <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">Click to enlarge</p>
+                    </button>
+                  )}
+                  {employee.idImageBackUrl && (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-slate-200 p-3 text-left transition hover:border-emerald-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
+                      onClick={() => setIdPreview({ url: employee.idImageBackUrl!, label: "ID back page" })}
+                    >
+                      <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Back page</p>
+                      <img src={employee.idImageBackUrl} alt={`${employee.fullName} ID back`} className="h-32 w-full rounded-lg border border-slate-200 object-cover dark:border-slate-700" />
+                      <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">Click to enlarge</p>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {isOwner && employee.archivedAt && (
@@ -624,6 +646,9 @@ function EmployeeProfileDialog({
       </div>
       {showPhoto && employee.profileImageUrl && (
         <EmployeePhotoPreview imageUrl={employee.profileImageUrl} name={employee.fullName} onClose={() => setShowPhoto(false)} />
+      )}
+      {idPreview && (
+        <EmployeePhotoPreview imageUrl={idPreview.url} name={`${employee.fullName} - ${idPreview.label}`} onClose={() => setIdPreview(null)} />
       )}
     </>
   );
