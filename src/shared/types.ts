@@ -34,6 +34,7 @@ export interface Employee {
   idImageUrl?: string;
   idImageBackUrl?: string;
   faydaNumber?: string;
+  bankAccountNumber?: string;
   phoneNumber: string;
   email?: string;
   address: string;

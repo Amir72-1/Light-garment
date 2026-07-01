@@ -55,6 +55,7 @@ const dateField = z.preprocess((value) => typeof value === "string" ? normalizeD
 const employeeSchema = z.object({
   fullName: z.string().min(2),
   faydaNumber: z.string().min(4).optional().or(z.literal("")),
+  bankAccountNumber: z.string().min(4).optional().or(z.literal("")),
   phoneNumber: z.string().min(7),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().min(3),
@@ -316,6 +317,7 @@ export async function createApp() {
     const employee = await repository.createEmployee({
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
+      bankAccountNumber: parsed.bankAccountNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
       idImageUrl: files.idDocumentFront ? imageFileToDataUrl(files.idDocumentFront) : undefined,
@@ -333,7 +335,7 @@ export async function createApp() {
     response.json(employee);
   }));
 
-  app.put("/api/employees/:id", auth, allow("Owner", "Manager", "HR/Admin"), profileUpload.fields([
+  app.put("/api/employees/:id", auth, allow("Owner"), profileUpload.fields([
     { name: "profilePicture", maxCount: 1 },
     { name: "idDocumentFront", maxCount: 1 },
     { name: "idDocumentBack", maxCount: 1 },
@@ -351,6 +353,7 @@ export async function createApp() {
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
+      bankAccountNumber: parsed.bankAccountNumber !== undefined ? parsed.bankAccountNumber : undefined,
       email: parsed.email || undefined,
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
       idImageUrl: files.idDocumentFront ? imageFileToDataUrl(files.idDocumentFront) : undefined,

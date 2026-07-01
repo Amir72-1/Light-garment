@@ -381,6 +381,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
   const [department, setDepartment] = useState("");
   const [view, setView] = useState<"active" | "archive">("active");
   const [selected, setSelected] = useState<Employee | null>(null);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const isOwner = role === "Owner";
   const params = new URLSearchParams({ search, pageSize: "50" });
   if (department) params.set("department", department);
@@ -399,6 +400,14 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
     onSuccess: () => {
       invalidate();
       setEmployeeFormKey((value) => value + 1);
+    }
+  });
+  const updateEmployee = useMutation({
+    mutationFn: ({ id, form }: { id: string; form: FormData }) => api.updateEmployee(token, id, form),
+    onSuccess: (updated) => {
+      invalidate();
+      setEditingEmployee(null);
+      setSelected((current) => current?.id === updated.id ? updated : current);
     }
   });
   const deleteEmployee = useMutation({
@@ -430,7 +439,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
   const filteredArchived = (archivedEmployees.data ?? []).filter((employee) => {
-    const matchesSearch = !search || [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase()));
+    const matchesSearch = !search || [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.bankAccountNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase()));
     const matchesDepartment = !department || employee.department === department;
     return matchesSearch && matchesDepartment;
   });
@@ -480,9 +489,13 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                       <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{employee.phoneNumber}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">NIB: {employee.bankAccountNumber || "Not provided"}</p>
                     </div>
                   </button>
                   <div className="action-row md:justify-end">
+                    {isOwner && (
+                      <Button variant="secondary" onClick={() => setEditingEmployee(employee)}>Edit</Button>
+                    )}
                     <Button variant="secondary" onClick={() => checkIn.mutate(employee.id)}>Check-in</Button>
                     <Button variant="secondary" onClick={() => checkOut.mutate(employee.id)}>Check-out</Button>
                     <Button variant="danger" onClick={() => deleteEmployee.mutate(employee)}>{deleteEmployee.isPending ? "Archiving..." : "Archive"}</Button>
@@ -513,6 +526,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                     <div>
                       <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge><Badge className="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200">Archived</Badge></div>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">NIB: {employee.bankAccountNumber || "Not provided"}</p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">Archived {employee.archivedAt ? new Date(employee.archivedAt).toLocaleString() : ""}</p>
                     </div>
                   </button>
@@ -534,9 +548,34 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
           employee={selected}
           isOwner={isOwner}
           onClose={() => setSelected(null)}
+          onEdit={isOwner && !selected.archivedAt ? () => { setEditingEmployee(selected); setSelected(null); } : undefined}
           onPermanentDelete={confirmPermanentDelete}
           permanentDeletePending={permanentDeleteEmployee.isPending}
         />
+      )}
+      {editingEmployee && (
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-labelledby="employee-edit-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingEmployee(null); }}>
+          <Card className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 id="employee-edit-title" className="text-xl font-black">Edit employee</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Update {editingEmployee.fullName}&apos;s HR record.</p>
+              </div>
+              <Button variant="ghost" className="h-9 w-9 px-0" aria-label="Close employee editor" onClick={() => setEditingEmployee(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <EmployeeForm
+              key={editingEmployee.id}
+              token={token}
+              employee={editingEmployee}
+              pending={updateEmployee.isPending}
+              error={updateEmployee.error?.message}
+              onCancel={() => setEditingEmployee(null)}
+              onSubmit={(form) => updateEmployee.mutate({ id: editingEmployee.id, form })}
+            />
+          </Card>
+        </div>
       )}
     </>
   );
@@ -546,12 +585,14 @@ function EmployeeProfileDialog({
   employee,
   isOwner,
   onClose,
+  onEdit,
   onPermanentDelete,
   permanentDeletePending = false
 }: {
   employee: Employee;
   isOwner: boolean;
   onClose: () => void;
+  onEdit?: () => void;
   onPermanentDelete: (employee: Employee) => void;
   permanentDeletePending?: boolean;
 }) {
@@ -583,6 +624,7 @@ function EmployeeProfileDialog({
           <dl className="mt-4 grid gap-2 text-sm">
             {Object.entries({
               "Fayda number": employee.faydaNumber || "Not provided",
+              "NIB (Bank account)": employee.bankAccountNumber || "Not provided",
               Phone: employee.phoneNumber,
               Email: employee.email || "Not provided",
               Address: employee.address,
@@ -635,6 +677,11 @@ function EmployeeProfileDialog({
               )}
             </div>
           )}
+          {isOwner && onEdit && (
+            <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
+              <Button variant="secondary" onClick={onEdit}>Edit employee</Button>
+            </div>
+          )}
           {isOwner && employee.archivedAt && (
             <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
               <Button variant="danger" disabled={permanentDeletePending} onClick={() => onPermanentDelete(employee)}>
@@ -668,22 +715,24 @@ function EmployeePhotoPreview({ imageUrl, name, onClose }: { imageUrl: string; n
   );
 }
 
-function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSubmit: (form: FormData) => void; pending: boolean; error?: string }) {
+function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: { token: string; employee?: Employee; onSubmit: (form: FormData) => void; pending: boolean; error?: string; onCancel?: () => void }) {
+  const isEdit = Boolean(employee);
   const today = new Date().toISOString().slice(0, 10);
   const [values, setValues] = useState({
-    fullName: "",
-    faydaNumber: "",
-    phoneNumber: "",
-    email: "",
-    address: "",
-    gender: "Female" as Gender,
-    dateOfBirth: "",
-    position: "",
-    department: "Production" as Department,
-    salary: "",
-    employmentType: "Full-time" as EmploymentType,
-    hireDate: today,
-    status: "Active" as "Active" | "Inactive"
+    fullName: employee?.fullName ?? "",
+    faydaNumber: employee?.faydaNumber ?? "",
+    bankAccountNumber: employee?.bankAccountNumber ?? "",
+    phoneNumber: employee?.phoneNumber ?? "",
+    email: employee?.email ?? "",
+    address: employee?.address ?? "",
+    gender: (employee?.gender ?? "Female") as Gender,
+    dateOfBirth: employee?.dateOfBirth ?? "",
+    position: employee?.position ?? "",
+    department: (employee?.department ?? "Production") as Department,
+    salary: employee ? String(employee.salary) : "",
+    employmentType: (employee?.employmentType ?? "Full-time") as EmploymentType,
+    hireDate: employee?.hireDate ?? today,
+    status: (employee?.status ?? "Active") as "Active" | "Inactive"
   });
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [idFrontFile, setIdFrontFile] = useState<File | null>(null);
@@ -706,6 +755,10 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
   const verifyFaydaNumber = async (faydaNumber: string) => {
     const trimmed = faydaNumber.trim();
     if (trimmed.length < 4) {
+      setFaydaConflict(null);
+      return;
+    }
+    if (employee?.faydaNumber && trimmed.toLowerCase() === employee.faydaNumber.toLowerCase()) {
       setFaydaConflict(null);
       return;
     }
@@ -785,8 +838,9 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
   );
 
   return (
-    <Card>
-      <h3 className="text-lg font-bold">Add employee</h3>
+    <Card className={isEdit ? "border-0 p-0 shadow-none" : undefined}>
+      {!isEdit && <h3 className="text-lg font-bold">Add employee</h3>}
+      {!isEdit && (
       <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
         <div>
           <p className="font-semibold text-emerald-950 dark:text-emerald-100">Scan employee ID</p>
@@ -809,8 +863,9 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
         )}
         {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-emerald-900 dark:text-emerald-200">{scanMessage}</p>}
       </div>
+      )}
       <form
-        className="mt-4 grid gap-3"
+        className={isEdit ? "grid gap-3" : "mt-4 grid gap-3"}
         onSubmit={(event) => {
           event.preventDefault();
           if (faydaConflict) return;
@@ -835,6 +890,13 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
           />
         </Field>
         {faydaConflict && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{faydaConflict}</p>}
+        <Field label="NIB (Bank account number)">
+          <Input
+            value={values.bankAccountNumber}
+            onChange={(event) => setField("bankAccountNumber", event.target.value)}
+            placeholder="Bank account / NIB number"
+          />
+        </Field>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Phone"><Input value={values.phoneNumber} onChange={(event) => setField("phoneNumber", event.target.value)} required /></Field>
           <Field label="Email (optional)"><Input value={values.email} onChange={(event) => setField("email", event.target.value)} type="email" placeholder="Leave blank if none" /></Field>
@@ -873,9 +935,12 @@ function EmployeeForm({ token, onSubmit, pending, error }: { token: string; onSu
             </Select>
           </Field>
         </div>
-        <Field label="Profile picture"><Input type="file" accept="image/*" capture="user" onChange={(event) => setProfileFile(event.target.files?.[0] ?? null)} /></Field>
+        <Field label={isEdit ? "Profile picture (optional update)" : "Profile picture"}><Input type="file" accept="image/*" capture="user" onChange={(event) => setProfileFile(event.target.files?.[0] ?? null)} /></Field>
         {error && <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p>}
-        <Button disabled={pending || Boolean(faydaConflict) || scanning}>{pending ? "Saving..." : "Register employee"}</Button>
+        <div className="action-row">
+          {onCancel && <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>}
+          <Button disabled={pending || Boolean(faydaConflict) || scanning}>{pending ? "Saving..." : isEdit ? "Save changes" : "Register employee"}</Button>
+        </div>
       </form>
     </Card>
   );

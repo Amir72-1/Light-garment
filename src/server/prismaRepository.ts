@@ -81,6 +81,7 @@ function employeeFromDb(row: any): Employee {
     idImageUrl: normalizeProfileImageUrl(row.idImageUrl) ?? undefined,
     idImageBackUrl: normalizeProfileImageUrl(row.idImageBackUrl) ?? undefined,
     faydaNumber: row.faydaNumber ?? undefined,
+    bankAccountNumber: row.bankAccountNumber ?? undefined,
     phoneNumber: row.phoneNumber,
     email: row.email ?? undefined,
     address: row.address,
@@ -309,6 +310,7 @@ export class PrismaRepository {
         { fullName: { contains: query.search, mode: "insensitive" } },
         { employeeCode: { contains: query.search, mode: "insensitive" } },
         { faydaNumber: { contains: query.search, mode: "insensitive" } },
+        { bankAccountNumber: { contains: query.search, mode: "insensitive" } },
         { phoneNumber: { contains: query.search, mode: "insensitive" } },
         { email: { contains: query.search, mode: "insensitive" } }
       ];
@@ -347,6 +349,7 @@ export class PrismaRepository {
         employeeCode: input.employeeCode || `LGM-EMP-${String(count + 1).padStart(4, "0")}`,
         fullName: input.fullName,
         faydaNumber: input.faydaNumber || null,
+        bankAccountNumber: input.bankAccountNumber || null,
         profileImageUrl: input.profileImageUrl || null,
         idImageUrl: input.idImageUrl || null,
         idImageBackUrl: input.idImageBackUrl || null,
@@ -372,6 +375,7 @@ export class PrismaRepository {
       data: {
         fullName: input.fullName,
         faydaNumber: input.faydaNumber,
+        bankAccountNumber: input.bankAccountNumber !== undefined ? input.bankAccountNumber || null : undefined,
         profileImageUrl: input.profileImageUrl,
         idImageUrl: input.idImageUrl,
         idImageBackUrl: input.idImageBackUrl,
