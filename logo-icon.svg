@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 480" role="img" aria-labelledby="logo-icon-title">
+  <title id="logo-icon-title">Light Garment Manufacturing PLC</title>
+  <defs>
+    <linearGradient id="bulbFill" x1="130" x2="270" y1="90" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe875" />
+      <stop offset="0.45" stop-color="#ffc830" />
+      <stop offset="1" stop-color="#f3a514" />
+    </linearGradient>
+    <radialGradient id="bulbHighlight" cx="170" cy="170" r="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7c2" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#fff7c2" stop-opacity="0" />
+    </radialGradient>
+    <filter id="softShadow" x="-20%" y="-15%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#1a1a2e" flood-opacity="0.16" />
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <!-- Bulb glass -->
+    <path
+      d="M200 72
+         C124 72 78 132 78 206
+         C78 252 96 292 124 322
+         C138 338 144 352 148 372
+         H252
+         C256 352 262 338 276 322
+         C304 292 322 252 322 206
+         C322 132 276 72 200 72 Z"
+      fill="url(#bulbFill)"
+      stroke="#1a1a2e"
+      stroke-width="7"
+      stroke-linejoin="round"
+    />
+    <ellipse cx="168" cy="156" rx="72" ry="88" fill="url(#bulbHighlight)" />
+
+    <!-- Classic collared shirt -->
+    <g fill="none" stroke="#1a1a2e" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Collar band -->
+      <path d="M148 188 C164 176 184 172 200 176 C216 172 236 176 252 188" stroke-width="5.5" />
+      <!-- Left collar leaf -->
+      <path d="M200 176 L164 214 C158 220 152 218 148 210 L168 188" stroke-width="5.5" fill="rgba(255,255,255,0.08)" />
+      <!-- Right collar leaf -->
+      <path d="M200 176 L236 214 C242 220 248 218 252 210 L232 188" stroke-width="5.5" fill="rgba(255,255,255,0.08)" />
+      <!-- Placket -->
+      <path d="M200 176 V286" stroke-width="5" />
+      <!-- Shoulders -->
+      <path d="M156 236 H244" stroke-width="4.5" />
+      <!-- Shirt body -->
+      <path d="M164 236 C164 258 168 278 176 296 H224 C232 278 236 258 236 236" stroke-width="4.5" />
+      <!-- Buttons -->
+      <circle cx="200" cy="214" r="3.2" fill="#1a1a2e" stroke="none" />
+      <circle cx="200" cy="238" r="3.2" fill="#1a1a2e" stroke="none" />
+      <circle cx="200" cy="262" r="3.2" fill="#1a1a2e" stroke="none" />
+    </g>
+
+    <!-- Bulb neck -->
+    <path d="M176 372 H224" stroke="#1a1a2e" stroke-width="7" stroke-linecap="round" />
+
+    <!-- Screw base -->
+    <g fill="none" stroke="#1a1a2e" stroke-linecap="round">
+      <path d="M168 388 H232" stroke-width="9" />
+      <path d="M174 408 H226" stroke-width="9" />
+      <path d="M180 428 H220" stroke-width="9" />
+      <path d="M188 446 H212" stroke-width="9" />
+    </g>
+  </g>
+
+  <!-- Light rays -->
+  <g stroke="#ffc830" stroke-linecap="round" stroke-width="4" opacity="0.92">
+    <path d="M200 28 V56" />
+    <path d="M154 38 L166 68" />
+    <path d="M114 64 L136 88" />
+    <path d="M84 98 L112 112" />
+    <path d="M62 138 L94 146" />
+    <path d="M246 38 L234 68" />
+    <path d="M286 64 L264 88" />
+    <path d="M316 98 L288 112" />
+    <path d="M338 138 L306 146" />
+  </g>
+</svg>
