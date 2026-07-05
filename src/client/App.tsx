@@ -920,7 +920,7 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
           </Field>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Salary"><Input value={values.salary} onChange={(event) => setField("salary", event.target.value)} type="number" required /></Field>
+          <Field label="Salary"><Input value={values.salary} onChange={(event) => setField("salary", event.target.value)} type="number" inputMode="decimal" className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" required /></Field>
           <Field label="Employment type">
             <Select value={values.employmentType} onChange={(event) => setField("employmentType", event.target.value)}>
               <option>Full-time</option><option>Part-time</option><option>Contract</option>
