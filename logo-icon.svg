@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 480" role="img" aria-labelledby="logo-icon-title">
+  <title id="logo-icon-title">Light Garment Manufacturing PLC</title>
+  <defs>
+    <linearGradient id="bulbFill" x1="120" x2="280" y1="80" y2="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe566" />
+      <stop offset="0.5" stop-color="#ffc830" />
+      <stop offset="1" stop-color="#f5a820" />
+    </linearGradient>
+    <linearGradient id="bulbGlow" x1="200" x2="200" y1="40" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffc830" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#ffc830" stop-opacity="0" />
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1a1a2e" flood-opacity="0.18" />
+    </filter>
+  </defs>
+
+  <ellipse cx="200" cy="210" rx="130" ry="140" fill="url(#bulbGlow)" />
+
+  <g filter="url(#softShadow)">
+    <path
+      d="M112 248c-24-36-33-78-21-122 13-52 56-88 109-92 65-5 122 39 133 101 6 42-2 79-27 112-17 21-27 45-31 73H144c-4-30-14-56-32-72Z"
+      fill="url(#bulbFill)"
+      stroke="#1a1a2e"
+      stroke-width="6"
+      stroke-linejoin="round"
+    />
+
+    <g fill="none" stroke="#1a1a2e" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M158 148c28-12 56-12 84 0" stroke-width="4.5" />
+      <path d="M170 172c22-8 38-8 60 0" stroke-width="4" />
+      <path d="M182 194c16-5 28-5 44 0" stroke-width="3.5" />
+      <path d="M158 148 128 218l36-26 40 48 40-48 36 26-30-70" stroke-width="4.5" fill="none" />
+      <path d="M200 218v32" stroke-width="4.5" />
+      <path d="M138 147 98 172" stroke-width="4.5" />
+      <path d="M262 147 302 172" stroke-width="4.5" />
+    </g>
+
+    <g fill="none" stroke="#1a1a2e" stroke-linecap="round">
+      <path d="M148 318h104" stroke-width="10" />
+      <path d="M156 346h88" stroke-width="10" />
+      <path d="M166 374h68" stroke-width="10" />
+      <path d="M178 402h44" stroke-width="10" />
+    </g>
+
+    <path
+      d="M96 252c-34-24-62-20-76 12 33-16 59-5 74 36"
+      fill="none"
+      stroke="#1a1a2e"
+      stroke-width="4"
+      stroke-linecap="round"
+    />
+    <path
+      d="M304 252c34-24 62-20 76 12-33-16-59-5-74 36"
+      fill="none"
+      stroke="#1a1a2e"
+      stroke-width="4"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <g stroke="#ffc830" stroke-linecap="round" stroke-width="3.5" opacity="0.9">
+    <path d="M200 24v36" />
+    <path d="M148 32l12 34" />
+    <path d="M104 58l22 28" />
+    <path d="M72 98l30 18" />
+    <path d="M52 148l34 10" />
+    <path d="M252 32l-12 34" />
+    <path d="M296 58l-22 28" />
+    <path d="M328 98l-30 18" />
+    <path d="M348 148l-34 10" />
+  </g>
+
+  <circle cx="88" cy="328" r="7" fill="#ffc830" opacity="0.85" />
+  <circle cx="108" cy="358" r="5.5" fill="#4b94a2" opacity="0.75" />
+  <circle cx="318" cy="290" r="7" fill="#ffc830" opacity="0.85" />
+  <circle cx="308" cy="322" r="5" fill="#4b94a2" opacity="0.75" />
+</svg>
