@@ -1,42 +1,39 @@
-const menuToggle = document.querySelector(".menu-toggle");
+const navToggle = document.querySelector(".nav-toggle");
 const navLinks = document.querySelector(".nav-links");
-const inquiryForm = document.querySelector(".inquiry-form");
-const formStatus = document.querySelector(".form-status");
+const quoteForm = document.querySelector("#quote-form");
+const formStatus = document.querySelector("#form-status");
+const year = document.querySelector("#year");
 
-menuToggle?.addEventListener("click", () => {
-  if (!navLinks) {
-    return;
-  }
+year.textContent = new Date().getFullYear();
 
-  const isOpen = navLinks.classList.toggle("is-open");
-  menuToggle.setAttribute("aria-expanded", String(isOpen));
+const resetQuoteForm = () => {
+  quoteForm.reset();
+  formStatus.textContent = "";
+};
+
+resetQuoteForm();
+window.addEventListener("pageshow", resetQuoteForm);
+
+navToggle.addEventListener("click", () => {
+  const isOpen = navToggle.getAttribute("aria-expanded") === "true";
+  navToggle.setAttribute("aria-expanded", String(!isOpen));
+  navLinks.classList.toggle("is-open", !isOpen);
+  document.body.classList.toggle("menu-open", !isOpen);
 });
 
-navLinks?.addEventListener("click", (event) => {
-  if (event.target instanceof HTMLAnchorElement) {
+navLinks.addEventListener("click", (event) => {
+  if (event.target.matches("a")) {
+    navToggle.setAttribute("aria-expanded", "false");
     navLinks.classList.remove("is-open");
-    menuToggle?.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("menu-open");
   }
 });
 
-inquiryForm?.addEventListener("submit", (event) => {
+quoteForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  const formData = new FormData(quoteForm);
+  const name = formData.get("name").toString().trim();
 
-  if (!formStatus) {
-    return;
-  }
-
-  const data = new FormData(inquiryForm);
-  const name = String(data.get("name") || "").trim();
-  const type = String(data.get("type") || "").trim();
-  const message = String(data.get("message") || "").trim();
-
-  if (!name || !type || !message) {
-    formStatus.textContent = "Please complete every field before preparing your message.";
-    return;
-  }
-
-  const text = encodeURIComponent(`Albanjar inquiry\nName: ${name}\nType: ${type}\nMessage: ${message}`);
-  formStatus.textContent = "Opening WhatsApp with your prepared message.";
-  window.location.href = `https://wa.me/251911387417?text=${text}`;
+  formStatus.textContent = `Thank you, ${name || "friend"}. Your inquiry is ready for Light Garment Manufacturing PLC to review.`;
+  quoteForm.reset();
 });
