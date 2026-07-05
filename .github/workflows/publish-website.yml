@@ -19,8 +19,12 @@ jobs:
 
       - name: Push website to Light-garment-website
         env:
-          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "WEBSITE_REPO_TOKEN secret is required to publish to Light-garment-website."
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add website "https://x-access-token:${GH_TOKEN}@github.com/Amir72-1/Light-garment-website.git"
@@ -28,7 +32,7 @@ jobs:
 
       - name: Enable GitHub Pages
         env:
-          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
         run: |
           gh api repos/Amir72-1/Light-garment-website/pages -X POST \
             -f build_type=legacy \
