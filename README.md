@@ -84,17 +84,3 @@ See `docs/api.md`.
 npm test
 npm run build
 ```
-
-## Marketing website
-
-The public company website lives in `website/` as a standalone static site for Light Garment Manufacturing PLC in Ethiopia.
-
-Run it locally:
-
-```bash
-python3 -m http.server 4173 --directory website
-```
-
-Then open `http://127.0.0.1:4173/`.
-
-Public preview: https://amir72-1.github.io/Light-garment/
