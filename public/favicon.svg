@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Light Garment">
+  <rect width="64" height="64" rx="14" fill="#064e3b"/>
+  <path d="M32 8c-11 0-20 8.9-20 19.8 0 6.8 3.4 12.3 8.5 16.1 2.5 1.9 3.7 4 3.7 6.6h15.6c0-2.7 1.2-4.8 3.7-6.6C48.6 40 52 34.5 52 27.8 52 16.9 43 8 32 8Z" fill="#fef3c7" stroke="#ecfdf5" stroke-width="2.5"/>
+  <path d="M24.5 49.5h15M26.5 55h11" stroke="#ecfdf5" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M23 25.5 29 21l3 3 3-3 6 4.5-3.2 5.1-2.8-1.7V41h-6V28.9l-2.8 1.7L23 25.5Z" fill="#10b981" stroke="#ecfdf5" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M28.7 21.2c1.9 1.5 4.7 1.5 6.6 0" stroke="#ecfdf5" stroke-width="1.8" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,848 @@
+import bcrypt from "bcryptjs";
+import QRCode from "qrcode";
+import type {
+  AttendanceRecord,
+  AttendanceStats,
+  AttendanceSettings,
+  DashboardMetrics,
+  Employee,
+  EmployeeAttendanceProfile,
+  InventoryMovement,
+  Paginated,
+  PayrollDashboard,
+  PayrollRecord,
+  PayrollReports,
+  PayrollSettings,
+  Product,
+  ProductionStage,
+  RawMaterial,
+  RawMaterialMovement,
+  RoleName,
+  Sale,
+  SaleItem
+} from "../shared/types.js";
+import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
+import { normalizeProfileImageUrl } from "./imageStorage.js";
+
+type UserRecord = {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: RoleName;
+  isActive: boolean;
+  lastSeenAt?: string;
+  createdAt: string;
+};
+
+type ListQuery = {
+  search?: string;
+  department?: string;
+  position?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+};
+
+type EmployeeInput = Omit<Employee, "id" | "employeeCode"> & { employeeCode?: string };
+
+const nowIso = () => new Date().toISOString();
+const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+
+function sanitizeEmployee(employee: Employee): Employee {
+  return {
+    ...employee,
+    profileImageUrl: normalizeProfileImageUrl(employee.profileImageUrl) ?? "",
+    idImageUrl: normalizeProfileImageUrl(employee.idImageUrl) ?? undefined,
+    idImageBackUrl: normalizeProfileImageUrl(employee.idImageBackUrl) ?? undefined
+  };
+}
+
+function findEmployeeRecord(employees: Employee[], employeeId: string) {
+  return employees.find((item) => item.id === employeeId) ?? null;
+}
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const defaultAttendanceSettings: AttendanceSettings = {
+  startTime: process.env.ATTENDANCE_START_TIME || "09:00",
+  endTime: process.env.ATTENDANCE_END_TIME || "17:00"
+};
+
+function paginate<T>(items: T[], page = 1, pageSize = 10): Paginated<T> {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.min(100, Math.max(1, pageSize));
+  const start = (safePage - 1) * safePageSize;
+  return { data: items.slice(start, start + safePageSize), page: safePage, pageSize: safePageSize, total: items.length };
+}
+
+function isLate(checkInTime: string, startTime: string) {
+  const time = new Date(checkInTime).toTimeString().slice(0, 5);
+  return time > startTime;
+}
+
+function totalHours(checkInTime?: string, checkOutTime?: string) {
+  if (!checkInTime || !checkOutTime) return undefined;
+  const hours = (new Date(checkOutTime).getTime() - new Date(checkInTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(hours * 100) / 100);
+}
+
+function dateTimeFor(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function shouldDefaultCheckout(date: string, endTime: string) {
+  return new Date() >= dateTimeFor(date, endTime);
+}
+
+function effectiveCheckOutTime(record: Pick<AttendanceRecord, "date" | "checkInTime" | "checkOutTime">, settings: AttendanceSettings) {
+  if (record.checkOutTime || !record.checkInTime || !shouldDefaultCheckout(record.date, settings.endTime)) {
+    return record.checkOutTime;
+  }
+  return dateTimeFor(record.date, settings.endTime).toISOString();
+}
+
+function overtimeHours(checkOutTime: string | undefined, date: string, settings: AttendanceSettings) {
+  if (!checkOutTime) return undefined;
+  const overtime = (new Date(checkOutTime).getTime() - dateTimeFor(date, settings.endTime).getTime()) / 3_600_000;
+  return Math.max(0, Math.round(overtime * 100) / 100);
+}
+
+function applyAttendanceCalculations(record: AttendanceRecord, settings: AttendanceSettings): AttendanceRecord {
+  const checkOutTime = effectiveCheckOutTime(record, settings);
+  return {
+    ...record,
+    checkOutTime,
+    totalHours: totalHours(record.checkInTime, checkOutTime),
+    overtimeHours: overtimeHours(checkOutTime, record.date, settings)
+  };
+}
+
+function workingDaysInMonth(month: string) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const days = new Date(year, monthIndex, 0).getDate();
+  return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
+}
+
+export class DemoRepository {
+  private users: UserRecord[] = [];
+  private employees: Employee[] = [];
+  private attendance: AttendanceRecord[] = [];
+  private products: Product[] = [];
+  private inventory: InventoryMovement[] = [];
+  private rawMaterials: RawMaterial[] = [];
+  private rawMaterialMovements: RawMaterialMovement[] = [];
+  private sales: Sale[] = [];
+  private payrolls: PayrollRecord[] = [];
+  private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
+  private payrollAudit: Array<{ payrollId: string; action: string; details?: string; at: string }> = [];
+  private production: ProductionStage[] = [];
+  private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
+  private activities: DashboardMetrics["recentActivity"] = [];
+  private company = {
+    name: "Light Garment Manufacturing PLC",
+    currency: "ETB",
+    address: "Addis Ababa, Ethiopia",
+    theme: "Light enterprise",
+    backupSchedule: "Daily at 02:00"
+  };
+
+  static async create() {
+    const repo = new DemoRepository();
+    await repo.seed();
+    return repo;
+  }
+
+  private async seed() {
+    const passwordHash = await bcrypt.hash("Password123!", 12);
+    this.users = [
+      { id: "usr_owner", name: "Light Garment Owner", email: "owner@lightgarment.example", passwordHash, role: "Owner", isActive: true, createdAt: nowIso() },
+      { id: "usr_manager", name: "Production Manager", email: "manager@lightgarment.example", passwordHash, role: "Manager", isActive: true, createdAt: nowIso() },
+      { id: "usr_store", name: "Store Keeper", email: "store@lightgarment.example", passwordHash, role: "Storekeeper", isActive: true, createdAt: nowIso() },
+      { id: "usr_sales", name: "Sales Cashier", email: "sales@lightgarment.example", passwordHash, role: "Salesperson", isActive: true, createdAt: nowIso() },
+      { id: "usr_hr", name: "HR Administrator", email: "hr@lightgarment.example", passwordHash, role: "HR/Admin", isActive: true, createdAt: nowIso() }
+    ];
+
+    this.employees = [
+      {
+        id: "emp_1",
+        employeeCode: "LGM-EMP-0001",
+        fullName: "Miriam Bekele",
+        faydaNumber: "FIN-0001-0001",
+        phoneNumber: "+251911000101",
+        email: "miriam@lightgarment.example",
+        address: "Bole, Addis Ababa",
+        gender: "Female",
+        dateOfBirth: "1990-03-11",
+        position: "Operations Manager",
+        department: "Admin",
+        salary: 35000,
+        employmentType: "Full-time",
+        hireDate: "2021-04-01",
+        status: "Active",
+        profileImageUrl: ""
+      },
+      {
+        id: "emp_2",
+        employeeCode: "LGM-EMP-0002",
+        fullName: "Yonas Alemu",
+        faydaNumber: "FIN-0001-0002",
+        phoneNumber: "+251911000303",
+        address: "Akaki Kality, Addis Ababa",
+        gender: "Male",
+        dateOfBirth: "1994-06-24",
+        position: "Senior Tailor",
+        department: "Production",
+        salary: 18000,
+        employmentType: "Full-time",
+        hireDate: "2022-01-15",
+        status: "Active",
+        profileImageUrl: ""
+      },
+      {
+        id: "emp_3",
+        employeeCode: "LGM-EMP-0003",
+        fullName: "Sara Hailu",
+        faydaNumber: "FIN-0001-0003",
+        phoneNumber: "+251911000404",
+        email: "sara@lightgarment.example",
+        address: "CMC, Addis Ababa",
+        gender: "Female",
+        dateOfBirth: "1997-09-08",
+        position: "Sales Associate",
+        department: "Sales",
+        salary: 14000,
+        employmentType: "Full-time",
+        hireDate: "2023-05-20",
+        status: "Active",
+        profileImageUrl: ""
+      }
+    ];
+
+    const qr = await QRCode.toDataURL("LGM-SH-0001");
+    this.products = [
+      {
+        id: "prd_1",
+        sku: "LGM-SH-0001",
+        productName: "Classic Oxford Shirt",
+        model: "Oxford 2026",
+        color: "White",
+        size: "M",
+        quantity: 120,
+        costPrice: 420,
+        sellingPrice: 850,
+        images: [],
+        barcode: "890100000001",
+        qrCode: qr
+      },
+      {
+        id: "prd_2",
+        sku: "LGM-SH-0002",
+        productName: "Premium Cotton Shirt",
+        model: "Cotton Executive",
+        color: "Sky Blue",
+        size: "L",
+        quantity: 16,
+        costPrice: 510,
+        sellingPrice: 980,
+        images: [],
+        barcode: "890100000002",
+        qrCode: await QRCode.toDataURL("LGM-SH-0002")
+      }
+    ];
+
+    this.rawMaterials = [
+      { id: "raw_1", name: "Cotton Fabric Roll", category: "Fabric", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95 },
+      { id: "raw_2", name: "White Thread", category: "Thread", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18 },
+      { id: "raw_3", name: "Pearl Buttons", category: "Buttons", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5 },
+      { id: "raw_4", name: "Poly Mailer", category: "Packaging", unit: "piece", quantity: 450, reorderLevel: 500, unitCost: 2.2 }
+    ];
+
+    this.production = ["Fabric", "Cutting", "Sewing", "Printing", "Ironing", "Packaging", "Finished goods"].map((stage, index) => ({
+      id: `stage_${index + 1}`,
+      productId: "prd_1",
+      productName: "Classic Oxford Shirt",
+      stage: stage as ProductionStage["stage"],
+      status: index < 3 ? "Completed" : index === 3 ? "In progress" : "Pending"
+    }));
+
+    this.inventory = [
+      { id: "inv_1", productId: "prd_1", productName: "Classic Oxford Shirt", type: "Stock in", quantity: 120, toLocation: "Finished goods", reference: "Opening stock", createdAt: nowIso() },
+      { id: "inv_2", productId: "prd_2", productName: "Premium Cotton Shirt", type: "Stock in", quantity: 16, toLocation: "Finished goods", reference: "Opening stock", createdAt: nowIso() }
+    ];
+
+    this.activities = [
+      { id: "act_1", label: "Opening inventory loaded", at: nowIso() },
+      { id: "act_2", label: "Employee seed records imported", at: nowIso() }
+    ];
+  }
+
+  async authenticate(email: string, password: string) {
+    const user = this.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
+    if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) {
+      return null;
+    }
+    user.lastSeenAt = nowIso();
+    return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
+  async listUsers() {
+    const now = Date.now();
+    return this.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      lastSeenAt: user.lastSeenAt,
+      isOnline: Boolean(user.lastSeenAt && now - new Date(user.lastSeenAt).getTime() < 15 * 60_000),
+      createdAt: user.createdAt
+    }));
+  }
+
+  async createUser(input: { name: string; email: string; password: string; role: RoleName }) {
+    if (this.users.some((user) => user.email.toLowerCase() === input.email.toLowerCase())) throw new Error("User email already exists");
+    const user: UserRecord = { id: id("usr"), name: input.name, email: input.email, passwordHash: await bcrypt.hash(input.password, 12), role: input.role, isActive: true, createdAt: nowIso() };
+    this.users.unshift(user);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async updateUser(userId: string, input: { name?: string; role?: RoleName; isActive?: boolean; password?: string }) {
+    const user = this.users.find((item) => item.id === userId);
+    if (!user) return null;
+    user.name = input.name ?? user.name;
+    user.role = input.role ?? user.role;
+    user.isActive = input.isActive ?? user.isActive;
+    if (input.password) user.passwordHash = await bcrypt.hash(input.password, 12);
+    return (await this.listUsers()).find((item) => item.id === user.id)!;
+  }
+
+  async deleteUser(userId: string) {
+    const before = this.users.length;
+    this.users = this.users.filter((item) => item.id !== userId);
+    return this.users.length < before;
+  }
+
+  async resetPassword(email: string) {
+    const user = this.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return null;
+    }
+    const token = `reset-${Math.random().toString(36).slice(2, 12)}`;
+    this.log(`Password reset token generated for ${user.email}`);
+    return { token, expiresAt: new Date(Date.now() + 1000 * 60 * 30).toISOString() };
+  }
+
+  async dashboard(): Promise<DashboardMetrics> {
+    const totalInventory = this.products.reduce((sum, product) => sum + product.quantity, 0);
+    const revenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);
+    return {
+      totalEmployees: this.employees.filter((employee) => !employee.archivedAt).length,
+      totalInventory,
+      totalSales: this.sales.length,
+      revenue,
+      lowStockAlerts: [
+        ...this.products.filter((product) => product.quantity < 20).map((product) => ({ id: product.id, name: product.productName, quantity: product.quantity, threshold: 20 })),
+        ...this.rawMaterials.filter((material) => material.quantity < material.reorderLevel).map((material) => ({ id: material.id, name: material.name, quantity: material.quantity, threshold: material.reorderLevel }))
+      ],
+      recentActivity: this.activities.slice(0, 8)
+    };
+  }
+
+  async listEmployees(query: ListQuery) {
+    let rows = this.employees.filter((employee) => !employee.archivedAt);
+    if (query.search) {
+      const search = query.search.toLowerCase();
+      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.bankAccountNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
+    }
+    if (query.department) rows = rows.filter((employee) => employee.department === query.department);
+    if (query.position) rows = rows.filter((employee) => employee.position.toLowerCase().includes(query.position!.toLowerCase()));
+    const sortBy = query.sortBy ?? "employeeCode";
+    rows.sort((left, right) => {
+      const leftValue = String(left[sortBy as keyof Employee] ?? "");
+      const rightValue = String(right[sortBy as keyof Employee] ?? "");
+      return (query.sortOrder === "desc" ? -1 : 1) * leftValue.localeCompare(rightValue);
+    });
+    return paginate(rows.map(sanitizeEmployee), query.page, query.pageSize);
+  }
+
+  async getEmployee(employeeId: string) {
+    const employee = findEmployeeRecord(this.employees, employeeId);
+    return employee ? sanitizeEmployee(employee) : null;
+  }
+
+  async listArchivedEmployees() {
+    return this.employees
+      .filter((employee) => employee.archivedAt)
+      .sort((left, right) => String(right.archivedAt).localeCompare(String(left.archivedAt)))
+      .map(sanitizeEmployee);
+  }
+
+  async faydaNumberExists(faydaNumber: string) {
+    const normalized = faydaNumber.trim().toLowerCase();
+    if (!normalized) return false;
+    return this.employees.some((employee) => employee.faydaNumber?.trim().toLowerCase() === normalized);
+  }
+
+  async createEmployee(input: EmployeeInput) {
+    const nextNumber = this.employees.length + 1;
+    const employee: Employee = { ...input, id: id("emp"), employeeCode: input.employeeCode || `LGM-EMP-${String(nextNumber).padStart(4, "0")}` };
+    this.employees.unshift(employee);
+    this.log(`Employee ${employee.employeeCode} registered`);
+    return sanitizeEmployee(employee);
+  }
+
+  async updateEmployee(employeeId: string, input: Partial<EmployeeInput>) {
+    const index = this.employees.findIndex((employee) => employee.id === employeeId);
+    if (index === -1) return null;
+    this.employees[index] = { ...this.employees[index], ...input };
+    this.log(`Employee ${this.employees[index].employeeCode} updated`);
+    return sanitizeEmployee(this.employees[index]);
+  }
+
+  async deleteEmployee(employeeId: string) {
+    const employee = findEmployeeRecord(this.employees, employeeId);
+    if (!employee) return false;
+    employee.archivedAt = nowIso();
+    employee.status = "Inactive";
+    this.log(`Employee ${employee.employeeCode} archived`);
+    return true;
+  }
+
+  async permanentlyDeleteEmployee(employeeId: string) {
+    const employee = findEmployeeRecord(this.employees, employeeId);
+    if (!employee?.archivedAt) return false;
+    this.employees = this.employees.filter((item) => item.id !== employeeId);
+    this.attendance = this.attendance.filter((item) => item.employeeId !== employeeId);
+    this.payrolls = this.payrolls.filter((item) => item.employeeId !== employeeId);
+    this.log(`Employee ${employee.employeeCode} permanently deleted`);
+    return true;
+  }
+
+  async resetEmployeeCodes() {
+    const active = this.employees
+      .filter((employee) => !employee.archivedAt)
+      .sort((left, right) => left.hireDate.localeCompare(right.hireDate) || left.fullName.localeCompare(right.fullName));
+    active.forEach((employee, index) => {
+      employee.employeeCode = `LGM-EMP-${String(index + 1).padStart(4, "0")}`;
+    });
+    this.log(`Reset employee codes for ${active.length} active employees`);
+    return active;
+  }
+
+  async listAttendance(date = todayKey()) {
+    return this.attendanceForDate(date);
+  }
+
+  async attendanceToday(date = todayKey()) {
+    return this.attendanceForDate(date);
+  }
+
+  async attendanceStats(date = todayKey()): Promise<AttendanceStats> {
+    const rows = await this.attendanceToday(date);
+    return {
+      date,
+      present: rows.filter((item) => item.status === "Present").length,
+      absent: rows.filter((item) => item.status === "Absent").length,
+      late: rows.filter((item) => item.status === "Late").length
+    };
+  }
+
+  async attendanceSettings() {
+    return this.attendanceConfig;
+  }
+
+  async updateAttendanceSettings(settings: AttendanceSettings) {
+    this.attendanceConfig = settings;
+    this.log(`Attendance schedule updated to ${settings.startTime}-${settings.endTime}`);
+    return this.attendanceConfig;
+  }
+
+  async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee) return null;
+    const records = this.attendance
+      .filter((item) => item.employeeId === employeeId && item.date.startsWith(month))
+      .map((item) => applyAttendanceCalculations(item, this.attendanceConfig))
+      .sort((left, right) => left.date.localeCompare(right.date));
+    const totalWorkingDays = workingDaysInMonth(month).length;
+    const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
+    return { employee, month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
+  }
+
+  async checkIn(employeeId: string, date = todayKey(), checkInTime = nowIso()) {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee) return null;
+    let record = this.attendance.find((item) => item.employeeId === employeeId && item.date === date);
+    if (record?.checkInTime) {
+      throw new Error("Employee already checked in today");
+    }
+    const status = isLate(checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present";
+    if (!record) {
+      record = this.recordForEmployee(employee, date, { checkInTime, status });
+      this.attendance.unshift(record);
+    } else {
+      record.checkInTime = checkInTime;
+      record.status = status;
+    }
+    this.log(`${employee.fullName} checked in`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
+    return record;
+  }
+
+  async checkOut(employeeId: string, date = todayKey(), checkOutTime = nowIso()) {
+    const record = this.attendance.find((item) => item.employeeId === employeeId && item.date === date);
+    if (!record) return null;
+    record.checkOutTime = checkOutTime;
+    record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
+    this.log(`${record.employeeName} checked out`);
+    this.recalculateExistingPayrollForEmployee(employeeId, date);
+    return record;
+  }
+
+  async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.getEmployee(input.employeeId);
+    if (!employee) return null;
+    const date = input.date || todayKey();
+    let record = this.attendance.find((item) => item.employeeId === input.employeeId && item.date === date);
+    if (!record) {
+      record = this.recordForEmployee(employee, date, input);
+      this.attendance.unshift(record);
+    } else {
+      record.status = input.status;
+      record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
+      record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
+      record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+      record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
+    }
+    this.log(`${employee.fullName} attendance marked ${record.status}`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, date);
+    return record;
+  }
+
+  async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    const employee = await this.getEmployee(input.employeeId);
+    if (!employee) return null;
+    let record = this.attendance.find((item) => item.employeeId === input.employeeId && item.date === input.date);
+    if (!record) {
+      record = this.recordForEmployee(employee, input.date, { status: "Absent" });
+      this.attendance.unshift(record);
+    }
+    record.checkInTime = input.checkInTime;
+    record.checkOutTime = input.checkOutTime;
+    record.status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "Late" : "Present") : "Absent";
+    record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
+    record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
+    this.log(`${employee.fullName} attendance times updated`);
+    this.recalculateExistingPayrollForEmployee(input.employeeId, input.date);
+    return record;
+  }
+
+  private attendanceForDate(date: string) {
+    return this.employees.map((employee) => {
+      const existing = this.attendance.find((item) => item.employeeId === employee.id && item.date === date);
+      return existing ? applyAttendanceCalculations(existing, this.attendanceConfig) : this.recordForEmployee(employee, date, { status: "Absent" });
+    }).sort((left, right) => left.employeeName.localeCompare(right.employeeName));
+  }
+
+  private recordForEmployee(employee: Employee, date: string, input: Partial<AttendanceRecord>): AttendanceRecord {
+    return {
+      id: id("att"),
+      employeeId: employee.id,
+      employeeName: employee.fullName,
+      employeeCode: employee.employeeCode,
+      department: employee.department,
+      position: employee.position,
+      date,
+      checkInTime: input.checkInTime,
+      checkOutTime: input.checkOutTime,
+      status: input.status || "Absent",
+      totalHours: totalHours(input.checkInTime, input.checkOutTime),
+      overtimeHours: overtimeHours(input.checkOutTime, date, this.attendanceConfig)
+    };
+  }
+
+  async payrollSettings() {
+    return this.payrollSettingsConfig;
+  }
+
+  async updatePayrollSettings(settings: PayrollSettings) {
+    this.payrollSettingsConfig = settings;
+    this.log("Payroll settings updated");
+    return this.payrollSettingsConfig;
+  }
+
+  async generatePayroll(month: number, year: number) {
+    const employees = this.employees.filter((employee) => !employee.archivedAt);
+    const records = employees.map((employee) => this.upsertPayrollForEmployee(employee, month, year));
+    this.log(`Payroll generated for ${month}/${year}`);
+    return records;
+  }
+
+  async listPayrolls(month?: number, year?: number) {
+    return this.payrolls
+      .filter((payroll) => (month ? payroll.payrollMonth === month : true) && (year ? payroll.payrollYear === year : true))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async payrollDashboard(month: number, year: number): Promise<PayrollDashboard> {
+    const history = await this.listPayrolls(month, year);
+    return {
+      awaitingPayment: history.filter((payroll) => payroll.paymentStatus !== "Paid").length,
+      totalPayroll: history.reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalPaid: history.filter((payroll) => payroll.paymentStatus === "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      totalUnpaid: history.filter((payroll) => payroll.paymentStatus !== "Paid").reduce((sum, payroll) => sum + payroll.payableSalary, 0),
+      history
+    };
+  }
+
+  async payrollReports(month: number, year: number): Promise<PayrollReports> {
+    const monthlyPayroll = await this.listPayrolls(month, year);
+    const departments = Array.from(new Set(monthlyPayroll.map((payroll) => payroll.employee.department)));
+    return {
+      monthlyPayroll,
+      payrollByDepartment: departments.map((department) => {
+        const rows = monthlyPayroll.filter((payroll) => payroll.employee.department === department);
+        return { department, employees: rows.length, total: rows.reduce((sum, payroll) => sum + payroll.payableSalary, 0) };
+      }),
+      attendanceSummary: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, presentDays: payroll.presentDays, absentDays: payroll.absentDays, lateDays: payroll.lateDays })),
+      overtimeReport: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, overtimeHours: payroll.overtimeHours, overtimePay: payroll.overtimePay })),
+      salaryDeductions: monthlyPayroll.map((payroll) => ({ employeeName: payroll.employee.fullName, deductions: payroll.deductions, tax: payroll.tax })),
+      paymentHistory: monthlyPayroll.filter((payroll) => payroll.paymentStatus === "Paid")
+    };
+  }
+
+  async getPayroll(payrollId: string) {
+    return this.payrolls.find((payroll) => payroll.id === payrollId) ?? null;
+  }
+
+  async updatePayroll(payrollId: string, input: { bonus?: number; allowance?: number; deductions?: number; notes?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    const updated = this.calculatePayroll(payroll.employee, payroll.payrollMonth, payroll.payrollYear, {
+      id: payroll.id,
+      bonus: input.bonus ?? payroll.bonus,
+      allowance: input.allowance ?? payroll.allowance,
+      deductions: input.deductions ?? payroll.deductions,
+      paymentStatus: payroll.paymentStatus,
+      paymentDate: payroll.paymentDate,
+      paymentMethod: payroll.paymentMethod,
+      notes: input.notes ?? payroll.notes,
+      createdAt: payroll.createdAt
+    });
+    this.replacePayroll(updated, "updated", "Payroll adjustments updated");
+    return updated;
+  }
+
+  async markPayrollPaid(payrollId: string, input: { paymentMethod?: PayrollRecord["paymentMethod"]; paymentDate?: string }) {
+    const payroll = await this.getPayroll(payrollId);
+    if (!payroll) return null;
+    payroll.paymentStatus = "Paid";
+    payroll.paymentMethod = input.paymentMethod ?? "Cash";
+    payroll.paymentDate = input.paymentDate ?? new Date().toISOString();
+    payroll.updatedAt = new Date().toISOString();
+    this.auditPayroll(payroll.id, "paid", `Paid via ${payroll.paymentMethod}`);
+    this.log(`Payroll ${payroll.employee.employeeCode} marked paid`);
+    return payroll;
+  }
+
+  async payrollPayslip(payrollId: string) {
+    return this.getPayroll(payrollId);
+  }
+
+  private upsertPayrollForEmployee(employee: Employee, month: number, year: number) {
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employee.id && payroll.payrollMonth === month && payroll.payrollYear === year);
+    const payroll = this.calculatePayroll(employee, month, year, existing ? {
+      id: existing.id,
+      bonus: existing.bonus,
+      allowance: existing.allowance,
+      paymentStatus: existing.paymentStatus,
+      paymentDate: existing.paymentDate,
+      paymentMethod: existing.paymentMethod,
+      notes: existing.notes,
+      createdAt: existing.createdAt
+    } : undefined);
+    this.replacePayroll(payroll, existing ? "recalculated" : "generated", existing ? "Payroll recalculated" : "Payroll generated");
+    return payroll;
+  }
+
+  private calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
+    const key = monthKey(month, year);
+    const attendance = this.attendance
+      .filter((record) => record.employeeId === employee.id && record.date.startsWith(key))
+      .map((record) => applyAttendanceCalculations(record, this.attendanceConfig));
+    return calculatePayrollRecord({
+      id: existing?.id ?? id("payroll"),
+      employee,
+      payrollMonth: month,
+      payrollYear: year,
+      attendance,
+      settings: this.payrollSettingsConfig,
+      bonus: existing?.bonus,
+      allowance: existing?.allowance,
+      extraDeductions: existing?.deductions,
+      paymentStatus: existing?.paymentStatus,
+      paymentDate: existing?.paymentDate,
+      paymentMethod: existing?.paymentMethod,
+      notes: existing?.notes,
+      createdAt: existing?.createdAt,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  private replacePayroll(payroll: PayrollRecord, action: string, details: string) {
+    this.payrolls = [payroll, ...this.payrolls.filter((item) => item.id !== payroll.id)];
+    this.auditPayroll(payroll.id, action, details);
+  }
+
+  private recalculateExistingPayrollForEmployee(employeeId: string, date: string) {
+    const employee = this.employees.find((item) => item.id === employeeId);
+    const [year, month] = date.split("-").map(Number);
+    const existing = this.payrolls.find((payroll) => payroll.employeeId === employeeId && payroll.payrollMonth === month && payroll.payrollYear === year);
+    if (employee && existing) {
+      this.upsertPayrollForEmployee(employee, month, year);
+    }
+  }
+
+  private auditPayroll(payrollId: string, action: string, details?: string) {
+    this.payrollAudit.unshift({ payrollId, action, details, at: new Date().toISOString() });
+  }
+
+  async listProducts() {
+    return this.products;
+  }
+
+  async createProduct(input: Omit<Product, "id" | "sku" | "qrCode"> & { sku?: string }) {
+    const sku = input.sku || `LGM-SH-${String(this.products.length + 1).padStart(4, "0")}`;
+    const product: Product = { ...input, id: id("prd"), sku, qrCode: await QRCode.toDataURL(sku) };
+    this.products.unshift(product);
+    this.inventory.unshift({ id: id("inv"), productId: product.id, productName: product.productName, type: "Stock in", quantity: product.quantity, toLocation: "Finished goods", reference: "Product registration", createdAt: nowIso() });
+    this.log(`Product ${sku} created`);
+    return product;
+  }
+
+  async moveStock(productId: string, quantity: number, type: InventoryMovement["type"], fromLocation?: string, toLocation?: string, reference?: string) {
+    const product = this.products.find((item) => item.id === productId);
+    if (!product) return null;
+    const delta = type === "Stock in" ? quantity : type === "Transfer" ? 0 : -quantity;
+    if (product.quantity + delta < 0) throw new Error("Insufficient stock");
+    product.quantity += delta;
+    const movement = { id: id("inv"), productId, productName: product.productName, type, quantity, fromLocation, toLocation, reference, createdAt: nowIso() };
+    this.inventory.unshift(movement);
+    this.log(`${type} recorded for ${product.productName}`);
+    return movement;
+  }
+
+  async listInventory() {
+    return this.inventory;
+  }
+
+  async listRawMaterials() {
+    return this.rawMaterials;
+  }
+
+  async createRawMaterial(input: Omit<RawMaterial, "id">) {
+    const material: RawMaterial = { ...input, id: id("raw") };
+    this.rawMaterials.unshift(material);
+    this.log(`Raw material ${material.name} registered`);
+    return material;
+  }
+
+  async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {
+    const material = this.rawMaterials.find((item) => item.id === rawMaterialId);
+    if (!material) return null;
+    if (material.quantity < input.quantity) throw new Error("Insufficient raw material stock");
+    material.quantity = Math.max(0, material.quantity - input.quantity);
+    const movement: RawMaterialMovement = { id: id("rawmove"), rawMaterialId, rawMaterialName: material.name, type: "Used", quantity: input.quantity, unit: material.unit, reference: input.reference, note: input.note, createdAt: nowIso() };
+    this.rawMaterialMovements.unshift(movement);
+    this.log(`Raw material used: ${material.name}`);
+    return movement;
+  }
+
+  async listRawMaterialMovements() {
+    return this.rawMaterialMovements;
+  }
+
+  async listProduction() {
+    return this.production;
+  }
+
+  async updateProduction(stageId: string, input: Partial<ProductionStage>) {
+    const stage = this.production.find((item) => item.id === stageId);
+    if (!stage) return null;
+    Object.assign(stage, input);
+    this.log(`${stage.stage} stage updated for ${stage.productName}`);
+    return stage;
+  }
+
+  async listSales() {
+    return this.sales;
+  }
+
+  async createSale(input: { customerName?: string; items: Array<{ productId: string; quantity: number }>; amountPaid: number; paymentMethod: Sale["paymentMethod"]; discount?: number; tax?: number }) {
+    const items: SaleItem[] = input.items.map((item) => {
+      const product = this.products.find((candidate) => candidate.id === item.productId);
+      if (!product) throw new Error("Product not found");
+      if (product.quantity < item.quantity) throw new Error(`Insufficient stock for ${product.productName}`);
+      return { productId: product.id, productName: product.productName, quantity: item.quantity, unitPrice: product.sellingPrice, total: product.sellingPrice * item.quantity };
+    });
+    const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+    const tax = input.tax ?? 0;
+    const discount = input.discount ?? 0;
+    const total = subtotal + tax - discount;
+    for (const item of items) {
+      await this.moveStock(item.productId, item.quantity, "Sale", "Finished goods", "Customer", "POS");
+    }
+    const sale: Sale = {
+      id: id("sale"),
+      invoiceNumber: `INV-${String(this.sales.length + 1).padStart(5, "0")}`,
+      customerName: input.customerName,
+      subtotal,
+      tax,
+      discount,
+      total,
+      amountPaid: input.amountPaid,
+      paymentStatus: input.amountPaid >= total ? "Paid" : input.amountPaid > 0 ? "Partial" : "Pending",
+      paymentMethod: input.paymentMethod,
+      items,
+      createdAt: nowIso()
+    };
+    this.sales.unshift(sale);
+    this.log(`Invoice ${sale.invoiceNumber} created`);
+    return sale;
+  }
+
+  async markSalePaid(saleId: string, amountPaid?: number, paymentMethod?: Sale["paymentMethod"]) {
+    const sale = this.sales.find((item) => item.id === saleId);
+    if (!sale) return null;
+    sale.amountPaid = amountPaid ?? sale.total;
+    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
+    sale.paymentStatus = sale.amountPaid >= sale.total ? "Paid" : sale.amountPaid > 0 ? "Partial" : "Pending";
+    this.log(`Invoice ${sale.invoiceNumber} marked ${sale.paymentStatus}`);
+    return sale;
+  }
+
+  async reports() {
+    const inventoryValue = this.products.reduce((sum, product) => sum + product.quantity * product.costPrice, 0);
+    const salesRevenue = this.sales.reduce((sum, sale) => sum + sale.total, 0);
+    const cogs = this.sales.reduce((sum, sale) => sum + sale.items.reduce((itemSum, item) => {
+      const product = this.products.find((candidate) => candidate.id === item.productId);
+      return itemSum + (product?.costPrice ?? 0) * item.quantity;
+    }, 0), 0);
+    return {
+      employeeReport: { total: this.employees.length, active: this.employees.filter((employee) => employee.status === "Active").length },
+      attendanceReport: { today: this.attendance.filter((item) => item.date === todayKey()).length, records: this.attendance },
+      inventoryReport: { totalUnits: this.products.reduce((sum, product) => sum + product.quantity, 0), inventoryValue },
+      salesReport: { invoices: this.sales.length, revenue: salesRevenue },
+      profitReport: { revenue: salesRevenue, cogs, grossProfit: salesRevenue - cogs }
+    };
+  }
+
+  async settings() {
+    return this.company;
+  }
+
+  private log(label: string) {
+    this.activities.unshift({ id: id("act"), label, at: nowIso() });
+  }
+}

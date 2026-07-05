@@ -1,0 +1,170 @@
+import bcrypt from "bcryptjs";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL ?? "postgresql://light_garment:light_garment_password@localhost:5432/light_garment_erp?schema=public"
+});
+const prisma = new PrismaClient({ adapter });
+
+async function main() {
+  const roles = ["OWNER", "MANAGER", "STOREKEEPER", "SALESPERSON", "HR_ADMIN"] as const;
+
+  for (const name of roles) {
+    await prisma.role.upsert({
+      where: { name },
+      update: {},
+      create: { name }
+    });
+  }
+
+  const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "OWNER" } });
+  const initialOwnerEmail = process.env.INITIAL_OWNER_EMAIL || "amir_kiar2001@yahoo.com";
+  const initialOwnerPassword = process.env.INITIAL_OWNER_PASSWORD || "Amirkiar1";
+  const initialOwnerName = process.env.INITIAL_OWNER_NAME || "Light Garment Owner";
+
+  const passwordHash = await bcrypt.hash(initialOwnerPassword, 12);
+
+  const managerEmployee = await prisma.employee.upsert({
+    where: { employeeCode: "LGM-EMP-0001" },
+    update: {},
+    create: {
+      employeeCode: "LGM-EMP-0001",
+      fullName: "Miriam Bekele",
+      faydaNumber: "FIN-0001-0001",
+      phoneNumber: "+251911000101",
+      email: "miriam@lightgarment.example",
+      address: "Addis Ababa, Ethiopia",
+      gender: "FEMALE",
+      dateOfBirth: new Date("1990-03-11"),
+      position: "Operations Manager",
+      department: "ADMIN",
+      salary: 35000,
+      employmentType: "FULL_TIME",
+      hireDate: new Date("2021-04-01"),
+      status: "ACTIVE"
+    }
+  });
+
+  const existingOwner = await prisma.user.findFirst({
+    where: { roleId: ownerRole.id }
+  });
+
+  if (existingOwner) {
+    console.log(`Owner account already exists: ${existingOwner.email}`);
+  } else {
+    const existingInitialUser = await prisma.user.findUnique({
+      where: { email: initialOwnerEmail }
+    });
+
+    if (existingInitialUser) {
+      await prisma.user.update({
+        where: { id: existingInitialUser.id },
+        data: {
+          name: initialOwnerName,
+          passwordHash,
+          roleId: ownerRole.id,
+          isActive: true
+        }
+      });
+      console.log(`Promoted existing account to owner: ${initialOwnerEmail}`);
+    } else {
+      await prisma.user.create({
+        data: {
+          name: initialOwnerName,
+          email: initialOwnerEmail,
+          passwordHash,
+          roleId: ownerRole.id,
+          employeeId: managerEmployee.id
+        }
+      });
+      console.log(`Created owner account: ${initialOwnerEmail}`);
+    }
+  }
+
+  const supplier = await prisma.supplier.upsert({
+    where: { id: "seed-supplier-light-textiles" },
+    update: {},
+    create: {
+      id: "seed-supplier-light-textiles",
+      name: "Light Textiles Supplier",
+      contactName: "Dawit Tesfaye",
+      phone: "+251911000202",
+      email: "supplier@example.com",
+      address: "Merkato, Addis Ababa"
+    }
+  });
+
+  await prisma.employee.upsert({
+    where: { employeeCode: "LGM-EMP-0002" },
+    update: {},
+    create: {
+      employeeCode: "LGM-EMP-0002",
+      fullName: "Yonas Alemu",
+      faydaNumber: "FIN-0001-0002",
+      phoneNumber: "+251911000303",
+      address: "Bole, Addis Ababa",
+      gender: "MALE",
+      dateOfBirth: new Date("1994-06-24"),
+      position: "Senior Tailor",
+      department: "PRODUCTION",
+      salary: 18000,
+      employmentType: "FULL_TIME",
+      hireDate: new Date("2022-01-15"),
+      status: "ACTIVE"
+    }
+  });
+
+  const product = await prisma.product.upsert({
+    where: { sku: "LGM-SH-0001" },
+    update: {},
+    create: {
+      sku: "LGM-SH-0001",
+      productName: "Classic Oxford Shirt",
+      model: "Oxford 2026",
+      color: "White",
+      size: "M",
+      quantity: 120,
+      costPrice: 420,
+      sellingPrice: 850,
+      images: [],
+      barcode: "890100000001",
+      qrCode: "LGM-SH-0001",
+      supplierId: supplier.id
+    }
+  });
+
+  const rawMaterials = [
+    { id: "seed-raw-cotton-fabric", name: "Cotton Fabric Roll", category: "FABRIC", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95, supplierId: supplier.id },
+    { id: "seed-raw-white-thread", name: "White Thread", category: "THREAD", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18, supplierId: supplier.id },
+    { id: "seed-raw-pearl-buttons", name: "Pearl Buttons", category: "BUTTONS", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5, supplierId: supplier.id }
+  ] as const;
+
+  for (const material of rawMaterials) {
+    await prisma.rawMaterial.upsert({
+      where: { id: material.id },
+      update: {},
+      create: material as never
+    });
+  }
+
+  for (const [index, stage] of ["FABRIC", "CUTTING", "SEWING", "PRINTING", "IRONING", "PACKAGING", "FINISHED_GOODS"].entries()) {
+    await prisma.productionStage.upsert({
+      where: { productId_stage: { productId: product.id, stage: stage as never } },
+      update: {},
+      create: {
+        productId: product.id,
+        stage: stage as never,
+        status: index < 3 ? "COMPLETED" : index === 3 ? "IN_PROGRESS" : "PENDING"
+      }
+    });
+  }
+}
+
+main()
+  .then(async () => prisma.$disconnect())
+  .catch(async (error) => {
+    console.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  });
