@@ -867,33 +867,32 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
       {isEdit && (
         <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/30">
           <div>
-            <p className="font-semibold text-amber-950 dark:text-amber-100">{employee?.faydaNumber ? "Fayda ID on file" : "Register Fayda ID"}</p>
+            <p className="font-semibold text-amber-950 dark:text-amber-100">{employee?.faydaNumber ? "Fayda ID & ID card images" : "Register Fayda ID"}</p>
             <p className="text-sm text-amber-900/80 dark:text-amber-200/80">
-              {employee?.faydaNumber
-                ? "You can update the Fayda number below if it was entered incorrectly."
-                : "This employee was registered without a Fayda ID. Scan the ID card to auto-fill the number, or type it in manually below."}
+              Upload or scan the Fayda/national ID front and back. OCR can auto-fill the Fayda number and other details. New uploads replace any existing ID images when you save.
             </p>
+            {(employee?.idImageUrl || employee?.idImageBackUrl) && (
+              <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">
+                ID images on file: {employee?.idImageUrl ? "front" : ""}{employee?.idImageUrl && employee?.idImageBackUrl ? " & " : ""}{employee?.idImageBackUrl ? "back" : ""}.
+              </p>
+            )}
           </div>
-          {!employee?.faydaNumber && (
-            <>
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                {renderIdSideCapture("front", "ID front page", idFrontPreview, frontUploadRef, frontCameraRef)}
-                {renderIdSideCapture("back", "ID back page", idBackPreview, backUploadRef, backCameraRef)}
-              </div>
-              {(idFrontPreview || idBackPreview) && (
-                <p className="mt-3 text-sm text-amber-950 dark:text-amber-100">ID images are saved with the employee record when you save changes.</p>
-              )}
-              {scanning && (
-                <div className="mt-4">
-                  <div className="h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-900">
-                    <div className="h-full bg-amber-600 transition-all" style={{ width: `${Math.round(scanProgress * 100)}%` }} />
-                  </div>
-                  <p className="mt-2 text-sm text-amber-900 dark:text-amber-200">Scanning ID... {Math.round(scanProgress * 100)}%</p>
-                </div>
-              )}
-              {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-amber-900 dark:text-amber-200">{scanMessage}</p>}
-            </>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {renderIdSideCapture("front", "ID front page", idFrontPreview, frontUploadRef, frontCameraRef)}
+            {renderIdSideCapture("back", "ID back page", idBackPreview, backUploadRef, backCameraRef)}
+          </div>
+          {(idFrontPreview || idBackPreview) && (
+            <p className="mt-3 text-sm text-amber-950 dark:text-amber-100">ID images are saved with the employee record when you save changes.</p>
           )}
+          {scanning && (
+            <div className="mt-4">
+              <div className="h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-900">
+                <div className="h-full bg-amber-600 transition-all" style={{ width: `${Math.round(scanProgress * 100)}%` }} />
+              </div>
+              <p className="mt-2 text-sm text-amber-900 dark:text-amber-200">Scanning ID... {Math.round(scanProgress * 100)}%</p>
+            </div>
+          )}
+          {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-amber-900 dark:text-amber-200">{scanMessage}</p>}
         </div>
       )}
       <form
@@ -922,7 +921,7 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
           />
           {isEdit && (
             <p className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              {employee?.faydaNumber ? "Edit the Fayda number if needed." : "Required for full HR identity — add it here if it was missing at registration."}
+              {employee?.faydaNumber ? "Edit the Fayda number or scan/upload ID images above to update it." : "Add the Fayda number here or scan/upload the ID card above."}
             </p>
           )}
         </Field>
