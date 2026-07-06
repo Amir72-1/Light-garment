@@ -864,6 +864,38 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
         {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-emerald-900 dark:text-emerald-200">{scanMessage}</p>}
       </div>
       )}
+      {isEdit && (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+          <div>
+            <p className="font-semibold text-amber-950 dark:text-amber-100">{employee?.faydaNumber ? "Fayda ID on file" : "Register Fayda ID"}</p>
+            <p className="text-sm text-amber-900/80 dark:text-amber-200/80">
+              {employee?.faydaNumber
+                ? "You can update the Fayda number below if it was entered incorrectly."
+                : "This employee was registered without a Fayda ID. Scan the ID card to auto-fill the number, or type it in manually below."}
+            </p>
+          </div>
+          {!employee?.faydaNumber && (
+            <>
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                {renderIdSideCapture("front", "ID front page", idFrontPreview, frontUploadRef, frontCameraRef)}
+                {renderIdSideCapture("back", "ID back page", idBackPreview, backUploadRef, backCameraRef)}
+              </div>
+              {(idFrontPreview || idBackPreview) && (
+                <p className="mt-3 text-sm text-amber-950 dark:text-amber-100">ID images are saved with the employee record when you save changes.</p>
+              )}
+              {scanning && (
+                <div className="mt-4">
+                  <div className="h-2 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-900">
+                    <div className="h-full bg-amber-600 transition-all" style={{ width: `${Math.round(scanProgress * 100)}%` }} />
+                  </div>
+                  <p className="mt-2 text-sm text-amber-900 dark:text-amber-200">Scanning ID... {Math.round(scanProgress * 100)}%</p>
+                </div>
+              )}
+              {scanMessage && !scanning && <p className="mt-3 text-sm font-medium text-amber-900 dark:text-amber-200">{scanMessage}</p>}
+            </>
+          )}
+        </div>
+      )}
       <form
         className={isEdit ? "grid gap-3" : "mt-4 grid gap-3"}
         onSubmit={(event) => {
@@ -886,8 +918,13 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
               void verifyFaydaNumber(event.target.value);
             }}
             onBlur={(event) => verifyFaydaNumber(event.target.value)}
-            placeholder="FIN / Fayda ID number"
+            placeholder={isEdit && !employee?.faydaNumber ? "Enter or scan Fayda ID number" : "FIN / Fayda ID number"}
           />
+          {isEdit && (
+            <p className="text-xs font-normal text-slate-500 dark:text-slate-400">
+              {employee?.faydaNumber ? "Edit the Fayda number if needed." : "Required for full HR identity — add it here if it was missing at registration."}
+            </p>
+          )}
         </Field>
         {faydaConflict && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{faydaConflict}</p>}
         <Field label="NIB (Bank account number)">

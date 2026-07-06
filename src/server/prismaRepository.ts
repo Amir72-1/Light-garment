@@ -374,7 +374,7 @@ export class PrismaRepository {
       where: { id: employeeId },
       data: {
         fullName: input.fullName,
-        faydaNumber: input.faydaNumber,
+        faydaNumber: input.faydaNumber !== undefined ? input.faydaNumber || null : undefined,
         bankAccountNumber: input.bankAccountNumber !== undefined ? input.bankAccountNumber || null : undefined,
         profileImageUrl: input.profileImageUrl,
         idImageUrl: input.idImageUrl,

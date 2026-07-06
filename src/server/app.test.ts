@@ -176,6 +176,46 @@ describe("Light Garment ERP API", () => {
     expect(update.body.position).toBe("Senior Clerk");
   });
 
+  it("lets owner add Fayda ID when editing an employee registered without one", async () => {
+    const { app, token } = await login();
+    const create = await request(app)
+      .post("/api/employees")
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "No Fayda Yet")
+      .field("phoneNumber", "+251900000099")
+      .field("address", "Late ID office")
+      .field("gender", "Male")
+      .field("dateOfBirth", "1991-08-08")
+      .field("position", "Helper")
+      .field("department", "Production")
+      .field("salary", "10000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(201);
+
+    expect(create.body.faydaNumber).toBeUndefined();
+
+    const update = await request(app)
+      .put(`/api/employees/${create.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .field("fullName", "No Fayda Yet")
+      .field("faydaNumber", "FIN-LATE-0001")
+      .field("phoneNumber", "+251900000099")
+      .field("address", "Late ID office")
+      .field("gender", "Male")
+      .field("dateOfBirth", "1991-08-08")
+      .field("position", "Helper")
+      .field("department", "Production")
+      .field("salary", "10000")
+      .field("employmentType", "Full-time")
+      .field("hireDate", "2026-01-01")
+      .field("status", "Active")
+      .expect(200);
+
+    expect(update.body.faydaNumber).toBe("FIN-LATE-0001");
+  });
+
   it("archives employees instead of permanently deleting them", async () => {
     const { app, token } = await login();
     const create = await request(app)

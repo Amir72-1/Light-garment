@@ -352,7 +352,7 @@ export async function createApp() {
     }
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
-      faydaNumber: parsed.faydaNumber || undefined,
+      faydaNumber: parsed.faydaNumber !== undefined ? parsed.faydaNumber : undefined,
       bankAccountNumber: parsed.bankAccountNumber !== undefined ? parsed.bankAccountNumber : undefined,
       email: parsed.email || undefined,
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
