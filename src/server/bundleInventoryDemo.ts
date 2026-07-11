@@ -19,7 +19,7 @@ import type {
   StorageLocation,
   Warehouse
 } from "../shared/bundleInventory.js";
-import { assertMoveQuantity, buildReferenceNumber, encodeQrPayload, normalizeRegisterVariants, type QrBundlePayload } from "../shared/bundleInventory.js";
+import { assertMoveQuantity, buildReferenceNumber, encodeQrPayload, isOutflowTransaction, normalizeRegisterVariants, requiresDestination, type QrBundlePayload } from "../shared/bundleInventory.js";
 
 type AuditContext = { userId: string; ipAddress?: string };
 
@@ -107,12 +107,14 @@ export class BundleInventoryDemo {
 
   private ensureDemoColor(name: string, colorCode?: string) {
     const trimmedName = name.trim();
-    const code = colorCode?.trim().toUpperCase() || trimmedName.slice(0, 3).toUpperCase();
+    const code = colorCode?.trim().toUpperCase();
     const existing = this.colors.find((item) => item.name.toLowerCase() === trimmedName.toLowerCase());
     if (existing) {
-      if (colorCode) existing.code = code;
+      if (!code && !existing.code) throw new Error(`Color code is required for ${trimmedName}.`);
+      if (code) existing.code = code;
       return existing;
     }
+    if (!code) throw new Error(`Color code is required for new color ${trimmedName}.`);
     const codeTaken = this.colors.find((item) => item.code === code);
     if (codeTaken) throw new Error(`Color code ${code} is already used by ${codeTaken.name}.`);
     const created = { id: id("col"), name: trimmedName, code };
@@ -244,10 +246,16 @@ export class BundleInventoryDemo {
       throw new Error("Bundle was updated elsewhere. Refresh and try again.");
     }
     assertMoveQuantity(source.remainingPieces, input.quantity);
-    const toWarehouse = this.warehouseById(input.toWarehouseId);
-    const toLocation = this.locationById(input.toLocationId);
-    if (source.warehouseId === input.toWarehouseId && (source.storageLocationId ?? null) === (input.toLocationId ?? null)) {
-      throw new Error("Destination must differ from the current location.");
+
+    const outflow = isOutflowTransaction(input.type);
+    const originalRemaining = source.remainingPieces;
+    let toWarehouse: Warehouse | undefined;
+    if (requiresDestination(input.type)) {
+      if (!input.toWarehouseId) throw new Error("Destination warehouse is required for this transaction.");
+      toWarehouse = this.warehouseById(input.toWarehouseId);
+      if (source.warehouseId === input.toWarehouseId && (source.storageLocationId ?? null) === (input.toLocationId ?? null)) {
+        throw new Error("Destination must differ from the current location.");
+      }
     }
 
     source.remainingPieces -= input.quantity;
@@ -257,7 +265,11 @@ export class BundleInventoryDemo {
     await this.refreshBundleQr(source);
 
     let destination: InventoryBundle | undefined;
-    if (input.quantity < source.remainingPieces + input.quantity || input.type === "Transfer" || input.type === "Split") {
+    const shouldCreateDestination = !outflow && toWarehouse && (
+      input.type === "Transfer" || input.type === "Split" || input.type === "Return" || input.quantity < originalRemaining
+    );
+    if (shouldCreateDestination && toWarehouse) {
+      const toLocation = this.locationById(input.toLocationId);
       const bundleId = id("bnd");
       const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
       const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
@@ -305,12 +317,12 @@ export class BundleInventoryDemo {
       type: input.type,
       quantity: input.quantity,
       fromWarehouseName: source.warehouseName,
-      toWarehouseName: toWarehouse.name,
-      toLocationName: toLocation?.name,
+      toWarehouseName: toWarehouse?.name,
+      toLocationName: this.locationById(input.toLocationId)?.name,
       userId: ctx.userId,
       userName: this.users.get(ctx.userId) ?? "Demo user",
       reason: input.reason,
-      referenceNumber: buildReferenceNumber("TRF"),
+      referenceNumber: buildReferenceNumber(outflow ? "OUT" : "TRF"),
       sourceBundleId: source.id,
       destinationBundleId: destination?.id,
       note: input.note,

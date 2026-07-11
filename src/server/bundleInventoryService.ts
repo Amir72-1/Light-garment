@@ -27,7 +27,9 @@ import {
   buildReferenceNumber,
   decodeQrPayload,
   encodeQrPayload,
+  isOutflowTransaction,
   normalizeRegisterVariants,
+  requiresDestination,
   type QrBundlePayload
 } from "../shared/bundleInventory.js";
 
@@ -190,34 +192,29 @@ async function ensureFabric(prisma: PrismaClient, name?: string, fabricId?: stri
 
 async function ensureColor(prisma: PrismaClient, name: string, colorId?: string, colorCode?: string) {
   const trimmedName = name.trim();
-  const normalizedCode = colorCode?.trim().toUpperCase() || trimmedName.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase() || "CLR";
+  const normalizedCode = colorCode?.trim().toUpperCase();
 
   if (colorId) {
     const existing = await prisma.colorOption.findUnique({ where: { id: colorId } });
     if (existing) {
-      if (colorCode && existing.code && existing.code !== normalizedCode) {
-        const codeTaken = await prisma.colorOption.findUnique({ where: { code: normalizedCode } });
-        if (codeTaken && codeTaken.id !== existing.id) throw new Error(`Color code ${normalizedCode} is already used by ${codeTaken.name}.`);
-      }
-      return prisma.colorOption.update({
-        where: { id: colorId },
-        data: { code: colorCode ? normalizedCode : existing.code ?? normalizedCode }
-      });
+      if (!normalizedCode && !existing.code) throw new Error(`Color code is required for ${existing.name}.`);
+      if (!normalizedCode) return existing;
+      const codeTaken = await prisma.colorOption.findFirst({ where: { code: normalizedCode, NOT: { id: existing.id } } });
+      if (codeTaken) throw new Error(`Color code ${normalizedCode} is already used by ${codeTaken.name}.`);
+      return prisma.colorOption.update({ where: { id: existing.id }, data: { code: normalizedCode } });
     }
   }
 
   const byName = await prisma.colorOption.findUnique({ where: { name: trimmedName } });
   if (byName) {
-    if (colorCode && byName.code && byName.code !== normalizedCode) {
-      const codeTaken = await prisma.colorOption.findUnique({ where: { code: normalizedCode } });
-      if (codeTaken && codeTaken.id !== byName.id) throw new Error(`Color code ${normalizedCode} is already used by ${codeTaken.name}.`);
-    }
-    return prisma.colorOption.update({
-      where: { id: byName.id },
-      data: { code: colorCode ? normalizedCode : byName.code ?? normalizedCode }
-    });
+    if (!normalizedCode && !byName.code) throw new Error(`Color code is required for ${trimmedName}.`);
+    if (!normalizedCode) return byName;
+    const codeTaken = await prisma.colorOption.findFirst({ where: { code: normalizedCode, NOT: { id: byName.id } } });
+    if (codeTaken) throw new Error(`Color code ${normalizedCode} is already used by ${codeTaken.name}.`);
+    return prisma.colorOption.update({ where: { id: byName.id }, data: { code: normalizedCode } });
   }
 
+  if (!normalizedCode) throw new Error(`Color code is required for new color ${trimmedName}.`);
   const codeTaken = await prisma.colorOption.findUnique({ where: { code: normalizedCode } });
   if (codeTaken) throw new Error(`Color code ${normalizedCode} is already used by ${codeTaken.name}.`);
 
@@ -396,7 +393,8 @@ export class BundleInventoryService {
     for (const variantInput of variants) {
       const color = await ensureColor(this.prisma, variantInput.color, variantInput.colorId, variantInput.colorCode);
       const size = await ensureSize(this.prisma, variantInput.size, variantInput.sizeId);
-      const colorCode = color.code ?? variantInput.colorCode?.toUpperCase();
+      if (!color.code) throw new Error(`Color code is required for ${color.name}.`);
+      const colorCode = color.code;
       const sku = `${prefix}-${colorCode}-${size.code}`;
       const variant = await this.prisma.productVariant.upsert({
         where: { productCatalogId_colorId_sizeId: { productCatalogId: catalog.id, colorId: color.id, sizeId: size.id } },
@@ -522,13 +520,18 @@ export class BundleInventoryService {
     }
     assertMoveQuantity(source.remainingPieces, input.quantity);
 
-    const toWarehouse = await this.prisma.warehouse.findUnique({ where: { id: input.toWarehouseId } });
-    if (!toWarehouse) throw new Error("Destination warehouse not found.");
+    const outflow = isOutflowTransaction(input.type);
+    let toWarehouse = null as Awaited<ReturnType<typeof this.prisma.warehouse.findUnique>>;
 
-    const sameWarehouse = source.warehouseId === input.toWarehouseId && (source.storageLocationId ?? null) === (input.toLocationId ?? null);
-    if (sameWarehouse) throw new Error("Destination must differ from the current location.");
+    if (requiresDestination(input.type)) {
+      if (!input.toWarehouseId) throw new Error("Destination warehouse is required for this transaction.");
+      toWarehouse = await this.prisma.warehouse.findUnique({ where: { id: input.toWarehouseId } });
+      if (!toWarehouse) throw new Error("Destination warehouse not found.");
+      const sameWarehouse = source.warehouseId === input.toWarehouseId && (source.storageLocationId ?? null) === (input.toLocationId ?? null);
+      if (sameWarehouse) throw new Error("Destination must differ from the current location.");
+    }
 
-    const referenceNumber = buildReferenceNumber("TRF");
+    const referenceNumber = buildReferenceNumber(outflow ? "OUT" : "TRF");
     const newRemaining = source.remainingPieces - input.quantity;
     const sourceQr = await buildBundleQr({
       id: source.id,
@@ -541,6 +544,11 @@ export class BundleInventoryService {
       remainingPieces: newRemaining,
       warehouse: source.warehouse
     });
+
+    const shouldCreateDestination = !outflow && toWarehouse && (
+      input.type === "Transfer" || input.type === "Split" || input.type === "Return" || input.quantity < source.remainingPieces
+    );
+
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedSource = await tx.inventoryBundle.update({
         where: { id: source.id },
@@ -555,7 +563,7 @@ export class BundleInventoryService {
       });
 
       let destinationRow = null as any;
-      if (input.quantity < source.remainingPieces || input.type === "Transfer") {
+      if (shouldCreateDestination && toWarehouse) {
         const destBundleNumber = await nextBundleNumber(tx as unknown as PrismaClient, source.bundleNumber.split("-BND-")[0] || "LGM");
         const qrCodeNumber = await nextQrCodeNumber(tx as unknown as PrismaClient);
         const bundleId = crypto.randomUUID();
@@ -605,29 +613,6 @@ export class BundleInventoryService {
             ipAddress: ctx.ipAddress ?? null
           }
         });
-      } else {
-        const movedQr = await buildBundleQr({
-          id: source.id,
-          bundleNumber: source.bundleNumber,
-          qrCodeNumber: source.qrCodeNumber,
-          productCatalogId: source.productCatalogId,
-          color: source.color,
-          colorCode: source.colorCode ?? undefined,
-          size: source.size,
-          remainingPieces: source.remainingPieces,
-          warehouse: toWarehouse
-        });
-        destinationRow = await tx.inventoryBundle.update({
-          where: { id: source.id },
-          data: {
-            warehouseId: toWarehouse.id,
-            storageLocationId: input.toLocationId ?? null,
-            qrPayload: movedQr.qrPayload,
-            qrImageUrl: movedQr.qrImageUrl,
-            version: { increment: 1 }
-          },
-          include: { warehouse: true, storageLocation: true }
-        });
       }
 
       const transaction = await tx.stockTransaction.create({
@@ -637,7 +622,7 @@ export class BundleInventoryService {
           quantity: input.quantity,
           fromWarehouseId: source.warehouseId,
           fromLocationId: source.storageLocationId,
-          toWarehouseId: toWarehouse.id,
+          toWarehouseId: toWarehouse?.id ?? null,
           toLocationId: input.toLocationId ?? null,
           userId: ctx.userId,
           reason: input.reason ?? null,
@@ -655,6 +640,7 @@ export class BundleInventoryService {
 
     await writeAudit(this.prisma, ctx, "MOVE_INVENTORY", "InventoryBundle", source.id, bundleFromRow(source), {
       quantity: input.quantity,
+      type: input.type,
       destinationBundleId: result.destinationRow?.id
     });
 

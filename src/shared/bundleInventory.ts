@@ -185,7 +185,7 @@ export interface CreateColorInput {
 export interface MoveBundleInput {
   bundleId: string;
   quantity: number;
-  toWarehouseId: string;
+  toWarehouseId?: string;
   toLocationId?: string;
   type: StockTransactionType;
   reason?: string;
@@ -215,6 +215,14 @@ export interface OfflineSyncResult {
   success: boolean;
   error?: string;
   data?: unknown;
+}
+
+export function isOutflowTransaction(type: StockTransactionType) {
+  return type === "Sale" || type === "Production consumption" || type === "Adjustment";
+}
+
+export function requiresDestination(type: StockTransactionType) {
+  return type === "Transfer" || type === "Split" || type === "Return";
 }
 
 export function normalizeRegisterVariants(input: RegisterBundleInput): RegisterBundleVariantInput[] {

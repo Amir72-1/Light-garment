@@ -723,6 +723,20 @@ describe("Bundle inventory API", () => {
 
     expect(overMove.body.message).toMatch(/Cannot move|Only/);
 
+    const saleMove = await request(app)
+      .post("/api/bundles/move")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        bundleId: registered.body[1].id,
+        quantity: 5,
+        type: "Sale",
+        reason: "Customer order",
+        expectedVersion: registered.body[1].version
+      })
+      .expect(201);
+
+    expect(saleMove.body.source.remainingPieces).toBe(registered.body[1].remainingPieces - 5);
+
     const search = await request(app)
       .get("/api/bundles/search?q=Polo")
       .set("Authorization", `Bearer ${token}`)

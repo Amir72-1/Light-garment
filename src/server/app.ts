@@ -12,6 +12,7 @@ import { imageFileToDataUrl } from "./imageStorage.js";
 import { PrismaRepository } from "./prismaRepository.js";
 import type { RoleName } from "../shared/types.js";
 import type { OfflineSyncOperation } from "../shared/bundleInventory.js";
+import { requiresDestination } from "../shared/bundleInventory.js";
 
 dotenv.config();
 
@@ -235,7 +236,7 @@ const stockTransactionTypeSchema = z.enum([
 const bundleVariantSchema = z.object({
   color: z.string().min(1),
   colorId: z.string().optional(),
-  colorCode: z.string().min(2).max(8).optional(),
+  colorCode: z.string().min(2).max(8),
   size: z.string().min(1),
   sizeId: z.string().optional(),
   bundleQuantity: z.coerce.number().int().min(1),
@@ -278,12 +279,16 @@ const scanBundleSchema = z.object({
 const moveBundleSchema = z.object({
   bundleId: z.string(),
   quantity: z.coerce.number().int().positive(),
-  toWarehouseId: z.string(),
+  toWarehouseId: z.string().optional(),
   toLocationId: z.string().optional(),
   type: stockTransactionTypeSchema,
   reason: z.string().optional(),
   note: z.string().optional(),
   expectedVersion: z.coerce.number().int().optional()
+}).superRefine((value, ctx) => {
+  if (requiresDestination(value.type) && !value.toWarehouseId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Destination warehouse is required for this transaction type.", path: ["toWarehouseId"] });
+  }
 });
 
 const splitBundleSchema = z.object({

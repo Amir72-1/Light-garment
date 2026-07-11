@@ -40,6 +40,7 @@ import type {
   StockTransaction,
   StockTransactionType
 } from "../shared/bundleInventory.js";
+import { isOutflowTransaction, requiresDestination } from "../shared/bundleInventory.js";
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
@@ -230,7 +231,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     setVariantRows([{
       key: "row-1",
       colorName: firstColor.name,
-      colorCode: firstColor.code ?? firstColor.name.slice(0, 3).toUpperCase(),
+      colorCode: firstColor.code ?? "",
       size: firstSize.code,
       bundleQuantity: 1,
       piecesPerBundle: 25,
@@ -305,6 +306,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
           productName: result.result.source.productName,
           style: result.result.source.style,
           color: result.result.source.color,
+          colorCode: result.result.source.colorCode,
           size: result.result.source.size,
           bundleNumber: result.result.source.bundleNumber,
           remainingPieces: result.result.source.remainingPieces,
@@ -312,8 +314,10 @@ export function BundleInventoryPanel({ token }: { token: string }) {
           shelfLocation: result.result.source.storageLocationName,
           status: result.result.source.status
         });
+        setMoveQty(Math.min(moveQty, result.result.source.remainingPieces || 1));
         notify("success", `Moved ${result.result.transaction.quantity} pieces. QR updated.`);
         invalidateBundleQueries();
+        queryClient.invalidateQueries({ queryKey: ["bundle-transactions"] });
       }
     },
     onError: (error: Error) => notify("error", error.message)
@@ -543,34 +547,46 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                     <option>Cycle count</option>
                   </Select>
                 </Field>
-                <Field label="Destination warehouse">
-                  <Select value={moveWarehouseId} onChange={(event) => setMoveWarehouseId(event.target.value)}>
-                    {metadata.data?.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Storage location">
-                  <Select value={moveLocationId} onChange={(event) => setMoveLocationId(event.target.value)}>
-                    <option value="">No shelf</option>
-                    {locations.data?.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
-                  </Select>
-                </Field>
+                {requiresDestination(moveType) && (
+                  <>
+                    <Field label="Destination warehouse">
+                      <Select value={moveWarehouseId} onChange={(event) => setMoveWarehouseId(event.target.value)}>
+                        {metadata.data?.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Storage location">
+                      <Select value={moveLocationId} onChange={(event) => setMoveLocationId(event.target.value)}>
+                        <option value="">No shelf</option>
+                        {locations.data?.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                      </Select>
+                    </Field>
+                  </>
+                )}
+                {isOutflowTransaction(moveType) && (
+                  <p className="text-sm text-slate-500">Pieces will be deducted from this bundle and recorded in movement history.</p>
+                )}
                 <Field label="Reason">
                   <Input value={moveReason} onChange={(event) => setMoveReason(event.target.value)} placeholder="Transfer reason" />
                 </Field>
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     disabled={moveMutation.isPending}
-                    onClick={() =>
+                    onClick={() => {
+                      if (!selectedBundle) return;
+                      if (requiresDestination(moveType) && !moveWarehouseId) {
+                        notify("error", "Select a destination warehouse for this transaction.");
+                        return;
+                      }
                       moveMutation.mutate({
                         bundleId: selectedBundle.id,
                         quantity: moveQty,
-                        toWarehouseId: moveWarehouseId,
-                        toLocationId: moveLocationId || undefined,
+                        toWarehouseId: requiresDestination(moveType) ? moveWarehouseId : undefined,
+                        toLocationId: requiresDestination(moveType) ? moveLocationId || undefined : undefined,
                         type: moveType,
                         reason: moveReason || undefined,
                         expectedVersion: selectedBundle.version
-                      })
-                    }
+                      });
+                    }}
                   >
                     <Truck className="h-4 w-4" />
                     Move
@@ -645,6 +661,10 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   bundleQuantity: row.bundleQuantity,
                   piecesPerBundle: row.piecesPerBundle
                 }));
+                if (variants.some((row) => !row.color.trim() || !row.colorCode || row.colorCode.length < 2)) {
+                  notify("error", "Enter a color name and color code (at least 2 characters) for every variant.");
+                  return;
+                }
                 registerMutation.mutate({
                   productName: String(form.get("productName")),
                   style: String(form.get("style")),
@@ -679,7 +699,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                         {
                           key: `row-${Date.now()}`,
                           colorName: metadata.data?.colors[0]?.name ?? "",
-                          colorCode: metadata.data?.colors[0]?.code ?? "CLR",
+                          colorCode: metadata.data?.colors[0]?.code ?? "",
                           size: metadata.data?.sizes[0]?.code ?? "M",
                           bundleQuantity: 1,
                           piecesPerBundle: 25,
@@ -716,7 +736,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                             setVariantRows((rows) =>
                               rows.map((item) =>
                                 item.key === row.key
-                                  ? { ...item, isNewColor: false, colorName: value, colorCode: selected?.code ?? value.slice(0, 3).toUpperCase() }
+                                  ? { ...item, isNewColor: false, colorName: value, colorCode: selected?.code ?? "" }
                                   : item
                               )
                             );
@@ -732,7 +752,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                         <Input
                           value={row.colorCode}
                           onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, colorCode: event.target.value.toUpperCase() } : item))}
-                          placeholder="BLU"
+                          placeholder="Enter code e.g. BLU"
                           required
                           maxLength={8}
                         />
