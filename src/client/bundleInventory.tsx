@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Html5QrcodeScanner } from "html5-qrcode";
 import { jsPDF } from "jspdf";
 import {
   AlertCircle,
@@ -22,6 +21,7 @@ import {
   WifiOff
 } from "lucide-react";
 import { api } from "./api";
+import { BundleQrScanner, shouldAutoStartBundleScanner, type BundleQrScannerHandle } from "./bundleQrScanner";
 import { Badge, Button, Card, Field, Input, Select, Textarea } from "./components/ui";
 import {
   clearFailedOperations,
@@ -36,11 +36,12 @@ import type {
   InventoryBundle,
   MoveBundleInput,
   RegisterBundleInput,
+  RegisterBundleMixedItemInput,
   RegisterBundleVariantInput,
   StockTransaction,
   StockTransactionType
 } from "../shared/bundleInventory.js";
-import { isOutflowTransaction, requiresDestination } from "../shared/bundleInventory.js";
+import { formatMixedBundleSummary, isOutflowTransaction, requiresDestination } from "../shared/bundleInventory.js";
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
@@ -69,6 +70,11 @@ function colorLabel(name: string, code?: string) {
   return code ? `${name} (${code})` : name;
 }
 
+function bundleVariantLabel(bundle: InventoryBundle) {
+  if (bundle.isMixed) return formatMixedBundleSummary(bundle.items);
+  return `${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size} · ${bundle.remainingPieces} pcs`;
+}
+
 type VariantRow = {
   key: string;
   colorName: string;
@@ -89,7 +95,7 @@ export function printBundleLabels(bundles: InventoryBundle[]) {
     doc.setFontSize(10);
     doc.text(bundle.productName.slice(0, 28), 28, 14);
     doc.setFontSize(8);
-    doc.text(`${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size} · ${bundle.remainingPieces} pcs`, 28, 20);
+    doc.text(bundleVariantLabel(bundle), 28, 20);
     doc.text(bundle.warehouseName, 28, 26);
     doc.text(bundle.bundleNumber, 4, 46);
   });
@@ -106,7 +112,7 @@ function printBundleLabelWindow(bundles: InventoryBundle[]) {
           <div>
             <div style="font-size:11px;color:#555">${bundle.qrCodeNumber}</div>
             <div style="font-size:16px;font-weight:700">${bundle.productName}</div>
-            <div style="font-size:12px">${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size} · ${bundle.remainingPieces} pcs</div>
+            <div style="font-size:12px">${bundleVariantLabel(bundle)}</div>
             <div style="font-size:12px">${bundle.warehouseName}</div>
           </div>
         </div>
@@ -123,12 +129,13 @@ function printBundleLabelWindow(bundles: InventoryBundle[]) {
 export function BundleInventoryPanel({ token }: { token: string }) {
   const queryClient = useQueryClient();
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const scannerRef = useRef<BundleQrScannerHandle>(null);
   const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("scan");
   const [search, setSearch] = useState("");
   const [scanCode, setScanCode] = useState("");
   const [scanResult, setScanResult] = useState<BundleScanResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<InventoryBundle | null>(null);
   const [moveQty, setMoveQty] = useState(1);
   const [moveWarehouseId, setMoveWarehouseId] = useState("");
@@ -145,6 +152,10 @@ export function BundleInventoryPanel({ token }: { token: string }) {
   const [lastRegistered, setLastRegistered] = useState<InventoryBundle[]>([]);
   const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
   const [variantRows, setVariantRows] = useState<VariantRow[]>([]);
+  const [registrationMode, setRegistrationMode] = useState<"separate" | "mixed">("separate");
+  const [mixedBundleQuantity, setMixedBundleQuantity] = useState(1);
+  const [moveItemColor, setMoveItemColor] = useState("");
+  const [moveItemSize, setMoveItemSize] = useState("");
 
   const metadata = useQuery({ queryKey: ["bundle-metadata"], queryFn: () => api.bundleMetadata(token) });
   const locations = useQuery({
@@ -245,6 +256,8 @@ export function BundleInventoryPanel({ token }: { token: string }) {
       setScanResult(result);
       setScanError(null);
       setSelectedBundle(result.bundle);
+      setMoveItemColor(result.bundle.isMixed ? result.bundle.items?.[0]?.color ?? "" : "");
+      setMoveItemSize(result.bundle.isMixed ? result.bundle.items?.[0]?.size ?? "" : "");
       notify("success", `Scanned ${result.bundleNumber}`);
     },
     onError: (error: Error) => {
@@ -308,12 +321,16 @@ export function BundleInventoryPanel({ token }: { token: string }) {
           color: result.result.source.color,
           colorCode: result.result.source.colorCode,
           size: result.result.source.size,
+          isMixed: result.result.source.isMixed,
+          items: result.result.source.items,
           bundleNumber: result.result.source.bundleNumber,
           remainingPieces: result.result.source.remainingPieces,
           warehouse: result.result.source.warehouseName,
           shelfLocation: result.result.source.storageLocationName,
           status: result.result.source.status
         });
+        setMoveItemColor(result.result.source.isMixed ? result.result.source.items?.[0]?.color ?? "" : "");
+        setMoveItemSize(result.result.source.isMixed ? result.result.source.items?.[0]?.size ?? "" : "");
         setMoveQty(Math.min(moveQty, result.result.source.remainingPieces || 1));
         notify("success", `Moved ${result.result.transaction.quantity} pieces. QR updated.`);
         invalidateBundleQueries();
@@ -405,20 +422,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     [scanMutation]
   );
 
+  const openScanTab = useCallback(() => {
+    setTab("scan");
+    if (shouldAutoStartBundleScanner()) {
+      window.requestAnimationFrame(() => {
+        void scannerRef.current?.start();
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    if (!cameraOpen) return;
-    const scanner = new Html5QrcodeScanner("bundle-qr-reader", { fps: 12, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true }, false);
-    scanner.render(
-      (decoded) => {
-        setCameraOpen(false);
-        handleScanSubmit(decoded);
-      },
-      () => undefined
-    );
-    return () => {
-      scanner.clear().catch(() => undefined);
-    };
-  }, [cameraOpen, handleScanSubmit]);
+    if (tab !== "scan" || !shouldAutoStartBundleScanner()) return;
+    const timer = window.setTimeout(() => {
+      void scannerRef.current?.start();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [tab]);
 
   const pendingCount = queued.filter((item) => item.status === "pending").length;
   const failedCount = queued.filter((item) => item.status === "failed").length;
@@ -468,7 +487,18 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
       <div className="flex flex-wrap gap-2">
         {(["scan", "register", "bundles", "history"] as const).map((key) => (
-          <Button key={key} variant={tab === key ? "primary" : "secondary"} onClick={() => setTab(key)}>
+          <Button
+            key={key}
+            variant={tab === key ? "primary" : "secondary"}
+            onClick={() => {
+              if (key === "scan") {
+                openScanTab();
+                return;
+              }
+              void scannerRef.current?.stop();
+              setTab(key);
+            }}
+          >
             {key === "scan" && <ScanLine className="h-4 w-4" />}
             {key === "register" && <PackagePlus className="h-4 w-4" />}
             {key === "bundles" && <QrCode className="h-4 w-4" />}
@@ -484,34 +514,64 @@ export function BundleInventoryPanel({ token }: { token: string }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold">QR scanner</h3>
-                <p className="text-sm text-slate-500">USB scanner, webcam, or phone camera. Lookup should be under one second.</p>
+                <p className="text-sm text-slate-500">Open the camera, point at a bundle QR, and the lookup runs automatically.</p>
               </div>
-              <Button variant="secondary" onClick={() => setCameraOpen((value) => !value)}>
+              <Button variant="secondary" onClick={() => void scannerRef.current?.start()}>
                 <Camera className="h-4 w-4" />
-                {cameraOpen ? "Close camera" : "Open camera"}
+                Open camera
               </Button>
             </div>
-            {cameraOpen && <div id="bundle-qr-reader" className="mt-4 overflow-hidden rounded-2xl" />}
-            <form
-              className="mt-4 flex flex-col gap-3 sm:flex-row"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleScanSubmit(scanCode);
-              }}
-            >
-              <Input
-                ref={scanInputRef}
-                value={scanCode}
-                onChange={(event) => setScanCode(event.target.value)}
-                placeholder="Scan or paste QR code / bundle number"
-                className="text-lg"
-                autoFocus
+
+            <div className="mt-4">
+              <BundleQrScanner
+                ref={scannerRef}
+                paused={scanMutation.isPending}
+                onScan={handleScanSubmit}
+                onError={(message) => {
+                  setScanError(message);
+                  notify("error", message);
+                }}
               />
-              <Button type="submit" disabled={scanMutation.isPending}>
-                {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                Scan
-              </Button>
-            </form>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                className="text-sm font-semibold text-emerald-700"
+                onClick={() => setManualEntryOpen((value) => !value)}
+              >
+                {manualEntryOpen ? "Hide manual entry" : "Enter code manually"}
+              </button>
+            </div>
+
+            {manualEntryOpen && (
+              <form
+                className="mt-3 flex flex-col gap-3 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleScanSubmit(scanCode);
+                }}
+              >
+                <Input
+                  ref={scanInputRef}
+                  value={scanCode}
+                  onChange={(event) => setScanCode(event.target.value)}
+                  placeholder="Paste QR payload or bundle number"
+                  className="text-lg"
+                />
+                <Button type="submit" disabled={scanMutation.isPending}>
+                  {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                  Lookup
+                </Button>
+              </form>
+            )}
+
+            {scanMutation.isPending && (
+              <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Looking up bundle...
+              </p>
+            )}
             {scanError && <p className="mt-3 text-sm text-rose-600">{scanError}</p>}
             {scanResult && (
               <div className="mt-6 grid gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[120px_1fr]">
@@ -519,7 +579,18 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                 <div className="grid gap-1 text-sm">
                   <p className="text-lg font-bold">{scanResult.productName}</p>
                   <p>{scanResult.style}</p>
-                  <p>{colorLabel(scanResult.color, scanResult.colorCode)} · {scanResult.size}</p>
+                  {scanResult.isMixed && scanResult.items?.length ? (
+                    <div className="grid gap-1">
+                      <p className="font-medium">Mixed assortment</p>
+                      {scanResult.items.map((item) => (
+                        <p key={`${item.color}-${item.size}`}>
+                          {colorLabel(item.color, item.colorCode)} · {item.size} · {item.remaining} pcs
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>{colorLabel(scanResult.color, scanResult.colorCode)} · {scanResult.size}</p>
+                  )}
                   <p>Bundle {scanResult.bundleNumber}</p>
                   <p>{scanResult.remainingPieces} pieces remaining</p>
                   <p>{scanResult.warehouse}{scanResult.shelfLocation ? ` · ${scanResult.shelfLocation}` : ""}</p>
@@ -534,8 +605,38 @@ export function BundleInventoryPanel({ token }: { token: string }) {
               <h3 className="text-lg font-bold">Move / split pieces</h3>
               <p className="mt-1 text-sm text-slate-500">Available: {selectedBundle.remainingPieces} pieces</p>
               <div className="mt-4 grid gap-3">
+                {selectedBundle.isMixed && selectedBundle.items?.length ? (
+                  <Field label="Color / size line">
+                    <Select
+                      value={`${moveItemColor}::${moveItemSize}`}
+                      onChange={(event) => {
+                        const [color, size] = event.target.value.split("::");
+                        setMoveItemColor(color);
+                        setMoveItemSize(size);
+                        const line = selectedBundle.items?.find((item) => item.color === color && item.size === size);
+                        setMoveQty(Math.min(moveQty, line?.remaining ?? 1));
+                      }}
+                    >
+                      {selectedBundle.items.map((item) => (
+                        <option key={`${item.color}-${item.size}`} value={`${item.color}::${item.size}`}>
+                          {colorLabel(item.color, item.colorCode)} · {item.size} · {item.remaining} available
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : null}
                 <Field label="Quantity">
-                  <Input type="number" min={1} max={selectedBundle.remainingPieces} value={moveQty} onChange={(event) => setMoveQty(Number(event.target.value))} />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={
+                      selectedBundle.isMixed
+                        ? selectedBundle.items?.find((item) => item.color === moveItemColor && item.size === moveItemSize)?.remaining ?? selectedBundle.remainingPieces
+                        : selectedBundle.remainingPieces
+                    }
+                    value={moveQty}
+                    onChange={(event) => setMoveQty(Number(event.target.value))}
+                  />
                 </Field>
                 <Field label="Transaction type">
                   <Select value={moveType} onChange={(event) => setMoveType(event.target.value as StockTransactionType)}>
@@ -577,9 +678,15 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                         notify("error", "Select a destination warehouse for this transaction.");
                         return;
                       }
+                      if (selectedBundle.isMixed && (!moveItemColor || !moveItemSize)) {
+                        notify("error", "Select a color and size line for this mixed bundle.");
+                        return;
+                      }
                       moveMutation.mutate({
                         bundleId: selectedBundle.id,
                         quantity: moveQty,
+                        itemColor: selectedBundle.isMixed ? moveItemColor : undefined,
+                        itemSize: selectedBundle.isMixed ? moveItemSize : undefined,
                         toWarehouseId: requiresDestination(moveType) ? moveWarehouseId : undefined,
                         toLocationId: requiresDestination(moveType) ? moveLocationId || undefined : undefined,
                         type: moveType,
@@ -648,12 +755,50 @@ export function BundleInventoryPanel({ token }: { token: string }) {
         <div className="grid gap-6 xl:grid-cols-[520px_1fr]">
           <Card>
             <h3 className="text-lg font-bold">Register inventory bundles</h3>
-            <p className="mt-1 text-sm text-slate-500">Add multiple color and size combinations in one registration. Each combination gets its own QR codes.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {registrationMode === "mixed"
+                ? "Register one QR bundle containing multiple color and size lines with different piece counts."
+                : "Add multiple color and size combinations in one registration. Each combination gets its own QR codes."}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" variant={registrationMode === "separate" ? "primary" : "secondary"} onClick={() => setRegistrationMode("separate")}>
+                Separate bundles
+              </Button>
+              <Button type="button" variant={registrationMode === "mixed" ? "primary" : "secondary"} onClick={() => setRegistrationMode("mixed")}>
+                Mixed assortment (one QR)
+              </Button>
+            </div>
             <form
               className="mt-4 grid gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
+                if (registrationMode === "mixed") {
+                  const mixedItems: RegisterBundleMixedItemInput[] = variantRows.map((row) => ({
+                    color: row.colorName.trim(),
+                    colorCode: row.colorCode.trim().toUpperCase(),
+                    size: row.size,
+                    pieces: row.piecesPerBundle
+                  }));
+                  if (mixedItems.some((row) => !row.color.trim() || !row.colorCode || row.colorCode.length < 2)) {
+                    notify("error", "Enter a color name and color code (at least 2 characters) for every line.");
+                    return;
+                  }
+                  registerMutation.mutate({
+                    productName: String(form.get("productName")),
+                    style: String(form.get("style")),
+                    fabric: String(form.get("fabric") || ""),
+                    registrationMode: "mixed",
+                    mixedItems,
+                    bundleQuantity: mixedBundleQuantity,
+                    unitCost: Number(form.get("unitCost")),
+                    sellingPrice: Number(form.get("sellingPrice")),
+                    warehouseId: String(form.get("warehouseId")),
+                    storageLocationId: String(form.get("storageLocationId") || "") || undefined,
+                    images: registerImages
+                  });
+                  return;
+                }
                 const variants: RegisterBundleVariantInput[] = variantRows.map((row) => ({
                   color: row.colorName.trim(),
                   colorCode: row.colorCode.trim().toUpperCase(),
@@ -689,7 +834,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
               <div className="grid gap-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold">Color / size variants</h4>
+                  <h4 className="font-bold">{registrationMode === "mixed" ? "Assortment lines" : "Color / size variants"}</h4>
                   <Button
                     type="button"
                     variant="secondary"
@@ -777,28 +922,56 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                           {metadata.data?.sizes.map((size) => <option key={size.id} value={size.code}>{size.code}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Bundles">
-                        <Input
-                          type="number"
-                          min={1}
-                          value={row.bundleQuantity}
-                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, bundleQuantity: Number(event.target.value) } : item))}
-                          required
-                        />
-                      </Field>
-                      <Field label="Pieces">
-                        <Input
-                          type="number"
-                          min={1}
-                          value={row.piecesPerBundle}
-                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, piecesPerBundle: Number(event.target.value) } : item))}
-                          required
-                        />
-                      </Field>
+                      {registrationMode === "separate" ? (
+                        <>
+                          <Field label="Bundles">
+                            <Input
+                              type="number"
+                              min={1}
+                              value={row.bundleQuantity}
+                              onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, bundleQuantity: Number(event.target.value) } : item))}
+                              required
+                            />
+                          </Field>
+                          <Field label="Pieces / bundle">
+                            <Input
+                              type="number"
+                              min={1}
+                              value={row.piecesPerBundle}
+                              onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, piecesPerBundle: Number(event.target.value) } : item))}
+                              required
+                            />
+                          </Field>
+                        </>
+                      ) : (
+                        <div className="col-span-2">
+                          <Field label="Pieces in bundle">
+                            <Input
+                              type="number"
+                              min={1}
+                              value={row.piecesPerBundle}
+                              onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, piecesPerBundle: Number(event.target.value) } : item))}
+                              required
+                            />
+                          </Field>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
+
+              {registrationMode === "mixed" && (
+                <Field label="Number of identical mixed bundles">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={mixedBundleQuantity}
+                    onChange={(event) => setMixedBundleQuantity(Number(event.target.value))}
+                    required
+                  />
+                </Field>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Unit cost"><Input name="unitCost" type="number" min={0} step="0.01" required /></Field>
@@ -825,7 +998,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
               </Field>
               <Button disabled={registerMutation.isPending || variantRows.length === 0}>
                 {registerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}
-                Register bundles
+                {registrationMode === "mixed" ? "Register mixed bundles" : "Register bundles"}
               </Button>
             </form>
           </Card>
@@ -845,7 +1018,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                 <div key={bundle.id} className="rounded-2xl border border-slate-100 p-4">
                   {bundle.qrImageUrl && <img src={bundle.qrImageUrl} alt="QR" className="h-24 w-24" />}
                   <p className="mt-2 font-bold">{bundle.productName}</p>
-                  <p className="text-sm text-slate-500">{colorLabel(bundle.color, bundle.colorCode)} · {bundle.size} · {bundle.piecesPerBundle} pcs</p>
+                  <p className="text-sm text-slate-500">{bundleVariantLabel(bundle)}</p>
                   <p className="text-xs text-slate-500">{bundle.bundleNumber} · {bundle.qrCodeNumber}</p>
                 </div>
               ))}
@@ -893,13 +1066,18 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                     productName: bundle.productName,
                     style: bundle.style,
                     color: bundle.color,
+                    colorCode: bundle.colorCode,
                     size: bundle.size,
+                    isMixed: bundle.isMixed,
+                    items: bundle.items,
                     bundleNumber: bundle.bundleNumber,
                     remainingPieces: bundle.remainingPieces,
                     warehouse: bundle.warehouseName,
                     shelfLocation: bundle.storageLocationName,
                     status: bundle.status
                   });
+                  setMoveItemColor(bundle.isMixed ? bundle.items?.[0]?.color ?? "" : "");
+                  setMoveItemSize(bundle.isMixed ? bundle.items?.[0]?.size ?? "" : "");
                   setTab("scan");
                 }}
                 className={`rounded-2xl border p-4 text-left transition ${selectedBundleIds.has(bundle.id) ? "border-emerald-400 bg-emerald-50/50" : "border-slate-100 hover:border-emerald-200"}`}
@@ -908,7 +1086,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   <div>
                     <p className="font-bold">{bundle.productName}</p>
                     <p className="text-sm text-slate-500">{bundle.style}</p>
-                    <p className="text-sm text-slate-500">{colorLabel(bundle.color, bundle.colorCode)} · {bundle.size}</p>
+                    <p className="text-sm text-slate-500">{bundle.isMixed ? formatMixedBundleSummary(bundle.items) : `${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size}`}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <input

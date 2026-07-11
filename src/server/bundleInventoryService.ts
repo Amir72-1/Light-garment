@@ -14,6 +14,7 @@ import type {
   ProductVariant,
   CreateColorInput,
   RegisterBundleInput,
+  RegisterBundleMixedItemInput,
   RegisterBundleVariantInput,
   SizeOption,
   SplitBundleInput,
@@ -28,12 +29,34 @@ import {
   decodeQrPayload,
   encodeQrPayload,
   isOutflowTransaction,
+  isMixedRegistration,
+  mixedBundleLineKey,
+  normalizeMixedItems,
   normalizeRegisterVariants,
   requiresDestination,
   type QrBundlePayload
 } from "../shared/bundleInventory.js";
 
 type AuditContext = { userId: string; ipAddress?: string };
+
+const bundleInclude = {
+  warehouse: true,
+  storageLocation: true,
+  items: { orderBy: { color: "asc" as const } }
+};
+
+function itemFromRow(row: any) {
+  return {
+    id: row.id,
+    bundleId: row.bundleId,
+    variantId: row.variantId ?? undefined,
+    color: row.color,
+    colorCode: row.colorCode ?? undefined,
+    size: row.size,
+    quantity: row.quantity,
+    remaining: row.remaining
+  };
+}
 
 const bundleStatusFromDb: Record<string, BundleStatus> = {
   ACTIVE: "Active",
@@ -86,6 +109,8 @@ function bundleFromRow(row: any): InventoryBundle {
     color: row.color,
     colorCode: row.colorCode ?? undefined,
     size: row.size,
+    isMixed: row.isMixed ?? false,
+    items: row.items?.map(itemFromRow),
     piecesPerBundle: row.piecesPerBundle,
     remainingPieces: row.remainingPieces,
     unitCost: Number(row.unitCost),
@@ -149,19 +174,23 @@ async function writeAudit(
   });
 }
 
-async function buildBundleQr(row: {
-  id: string;
-  bundleNumber: string;
-  qrCodeNumber: string;
-  productCatalogId: string;
-  color: string;
-  colorCode?: string;
-  size: string;
-  remainingPieces: number;
-  warehouse: { code: string };
-}) {
+async function buildBundleQr(
+  row: {
+    id: string;
+    bundleNumber: string;
+    qrCodeNumber: string;
+    productCatalogId: string;
+    color: string;
+    colorCode?: string;
+    size: string;
+    remainingPieces: number;
+    warehouse: { code: string };
+  },
+  items?: Array<{ color: string; colorCode?: string; size: string; remaining: number }>
+) {
+  const isMixed = Boolean(items?.length);
   const payload: QrBundlePayload = {
-    v: 1,
+    v: isMixed ? 2 : 1,
     bundleId: row.id,
     bundleNumber: row.bundleNumber,
     qrCodeNumber: row.qrCodeNumber,
@@ -170,7 +199,10 @@ async function buildBundleQr(row: {
     colorCode: row.colorCode,
     size: row.size,
     quantity: row.remainingPieces,
-    warehouseCode: row.warehouse.code
+    warehouseCode: row.warehouse.code,
+    items: isMixed
+      ? items!.map((item) => ({ color: item.color, colorCode: item.colorCode, size: item.size, quantity: item.remaining }))
+      : undefined
   };
   const qrPayload = encodeQrPayload(payload);
   const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
@@ -309,7 +341,7 @@ export class BundleInventoryService {
           { qrPayload: { contains: q, mode: "insensitive" } }
         ]
       },
-      include: { warehouse: true, storageLocation: true },
+      include: bundleInclude,
       orderBy: { updatedAt: "desc" },
       take: 100
     });
@@ -318,7 +350,7 @@ export class BundleInventoryService {
 
   async listBundles(): Promise<InventoryBundle[]> {
     const rows = await this.prisma.inventoryBundle.findMany({
-      include: { warehouse: true, storageLocation: true },
+      include: bundleInclude,
       orderBy: { updatedAt: "desc" },
       take: 200
     });
@@ -331,7 +363,7 @@ export class BundleInventoryService {
       where: decoded
         ? { OR: [{ id: decoded.bundleId }, { qrCodeNumber: decoded.qrCodeNumber }, { qrPayload: code }] }
         : { OR: [{ qrCodeNumber: code }, { bundleNumber: code }, { qrPayload: code }] },
-      include: { warehouse: true, storageLocation: true }
+      include: bundleInclude
     });
     if (!row) return null;
     const bundle = bundleFromRow(row);
@@ -351,6 +383,8 @@ export class BundleInventoryService {
       color: bundle.color,
       colorCode: bundle.colorCode,
       size: bundle.size,
+      isMixed: bundle.isMixed,
+      items: bundle.items,
       bundleNumber: bundle.bundleNumber,
       remainingPieces: bundle.remainingPieces,
       warehouse: bundle.warehouseName,
@@ -359,7 +393,187 @@ export class BundleInventoryService {
     };
   }
 
+  private async prepareMixedItemVariants(
+    catalogId: string,
+    prefix: string,
+    input: RegisterBundleInput,
+    mixedItems: RegisterBundleMixedItemInput[]
+  ) {
+    const prepared: Array<{
+      color: Awaited<ReturnType<typeof ensureColor>>;
+      size: Awaited<ReturnType<typeof ensureSize>>;
+      variant: { id: string };
+      pieces: number;
+    }> = [];
+
+    for (const item of mixedItems) {
+      if (item.pieces < 1) throw new Error("Each color/size line must have at least 1 piece.");
+      const color = await ensureColor(this.prisma, item.color, item.colorId, item.colorCode);
+      const size = await ensureSize(this.prisma, item.size, item.sizeId);
+      if (!color.code) throw new Error(`Color code is required for ${color.name}.`);
+      const sku = `${prefix}-${color.code}-${size.code}`;
+      const variant = await this.prisma.productVariant.upsert({
+        where: { productCatalogId_colorId_sizeId: { productCatalogId: catalogId, colorId: color.id, sizeId: size.id } },
+        create: {
+          productCatalogId: catalogId,
+          colorId: color.id,
+          sizeId: size.id,
+          sku,
+          costPrice: input.unitCost,
+          sellingPrice: input.sellingPrice,
+          images: input.images ?? []
+        },
+        update: {
+          costPrice: input.unitCost,
+          sellingPrice: input.sellingPrice,
+          images: input.images ?? []
+        }
+      });
+      prepared.push({ color, size, variant, pieces: item.pieces });
+    }
+
+    const seen = new Set<string>();
+    for (const item of prepared) {
+      const key = mixedBundleLineKey(item.color.name, item.size.code);
+      if (seen.has(key)) throw new Error(`Duplicate color/size line: ${item.color.name} ${item.size.code}.`);
+      seen.add(key);
+    }
+
+    return prepared;
+  }
+
+  async registerMixedBundles(input: RegisterBundleInput, ctx: AuditContext): Promise<InventoryBundle[]> {
+    const mixedItems = normalizeMixedItems(input);
+    const bundleQuantity = input.bundleQuantity ?? 1;
+    if (bundleQuantity < 1) throw new Error("Bundle quantity must be at least 1.");
+
+    const warehouse = await this.prisma.warehouse.findUnique({ where: { id: input.warehouseId } });
+    if (!warehouse) throw new Error("Warehouse not found.");
+
+    const fabric = await ensureFabric(this.prisma, input.fabric, input.fabricId);
+    const prefix = (input.skuPrefix || input.productName.replace(/\s+/g, "-").slice(0, 8).toUpperCase() || "LGM").toUpperCase();
+
+    const catalogExisting = await this.prisma.productCatalog.findFirst({
+      where: { name: input.productName.trim(), style: input.style.trim() }
+    });
+    const catalog = catalogExisting
+      ? await this.prisma.productCatalog.update({
+          where: { id: catalogExisting.id },
+          data: { fabricId: fabric?.id ?? null, skuPrefix: prefix }
+        })
+      : await this.prisma.productCatalog.create({
+          data: {
+            name: input.productName.trim(),
+            style: input.style.trim(),
+            fabricId: fabric?.id ?? null,
+            skuPrefix: prefix
+          }
+        });
+
+    const preparedItems = await this.prepareMixedItemVariants(catalog.id, prefix, input, mixedItems);
+    const piecesPerBundle = preparedItems.reduce((sum, item) => sum + item.pieces, 0);
+    const created: InventoryBundle[] = [];
+
+    for (let index = 0; index < bundleQuantity; index += 1) {
+      const bundleNumber = await nextBundleNumber(this.prisma, prefix);
+      const qrCodeNumber = await nextQrCodeNumber(this.prisma);
+      const bundleId = crypto.randomUUID();
+
+      const row = await this.prisma.inventoryBundle.create({
+        data: {
+          id: bundleId,
+          bundleNumber,
+          qrCodeNumber,
+          qrPayload: "",
+          qrImageUrl: null,
+          productCatalogId: catalog.id,
+          productName: catalog.name,
+          style: catalog.style,
+          fabric: fabric?.name ?? input.fabric ?? null,
+          color: "Mixed",
+          colorCode: null,
+          size: "Mixed",
+          isMixed: true,
+          piecesPerBundle,
+          remainingPieces: piecesPerBundle,
+          unitCost: input.unitCost,
+          sellingPrice: input.sellingPrice,
+          warehouseId: warehouse.id,
+          storageLocationId: input.storageLocationId ?? null,
+          status: "ACTIVE",
+          items: {
+            create: preparedItems.map((item) => ({
+              variantId: item.variant.id,
+              color: item.color.name,
+              colorCode: item.color.code,
+              size: item.size.code,
+              quantity: item.pieces,
+              remaining: item.pieces
+            }))
+          }
+        },
+        include: bundleInclude
+      });
+
+      const { qrPayload, qrImageUrl } = await buildBundleQr(
+        {
+          id: row.id,
+          bundleNumber: row.bundleNumber,
+          qrCodeNumber: row.qrCodeNumber,
+          productCatalogId: row.productCatalogId,
+          color: row.color,
+          size: row.size,
+          remainingPieces: row.remainingPieces,
+          warehouse
+        },
+        row.items.map((item) => ({
+          color: item.color,
+          colorCode: item.colorCode ?? undefined,
+          size: item.size,
+          remaining: item.remaining
+        }))
+      );
+
+      const updated = await this.prisma.inventoryBundle.update({
+        where: { id: row.id },
+        data: { qrPayload, qrImageUrl },
+        include: bundleInclude
+      });
+
+      const referenceNumber = buildReferenceNumber("RCV");
+      await this.prisma.stockTransaction.create({
+        data: {
+          bundleId: updated.id,
+          type: "RECEIVING",
+          quantity: piecesPerBundle,
+          toWarehouseId: warehouse.id,
+          toLocationId: input.storageLocationId ?? null,
+          userId: ctx.userId,
+          reason: "Mixed assortment bundle registration",
+          referenceNumber,
+          ipAddress: ctx.ipAddress ?? null
+        }
+      });
+      await this.prisma.qrCodeHistory.create({
+        data: {
+          bundleId: updated.id,
+          qrCodeNumber,
+          action: "GENERATED",
+          userId: ctx.userId,
+          ipAddress: ctx.ipAddress ?? null
+        }
+      });
+      await writeAudit(this.prisma, ctx, "REGISTER_BUNDLE", "InventoryBundle", updated.id, undefined, bundleFromRow(updated));
+      created.push(bundleFromRow(updated));
+    }
+
+    return created;
+  }
+
   async registerBundles(input: RegisterBundleInput, ctx: AuditContext): Promise<InventoryBundle[]> {
+    if (isMixedRegistration(input)) {
+      return this.registerMixedBundles(input, ctx);
+    }
     const variants = normalizeRegisterVariants(input);
     for (const variant of variants) {
       if (variant.bundleQuantity < 1) throw new Error("Bundle quantity must be at least 1 for every color/size.");
@@ -512,13 +726,30 @@ export class BundleInventoryService {
   async moveBundlePieces(input: MoveBundleInput, ctx: AuditContext): Promise<{ source: InventoryBundle; destination?: InventoryBundle; transaction: StockTransaction }> {
     const source = await this.prisma.inventoryBundle.findUnique({
       where: { id: input.bundleId },
-      include: { warehouse: true, storageLocation: true }
+      include: bundleInclude
     });
     if (!source) throw new Error("Bundle not found.");
     if (input.expectedVersion && source.version !== input.expectedVersion) {
       throw new Error("Bundle was updated elsewhere. Refresh and try again.");
     }
-    assertMoveQuantity(source.remainingPieces, input.quantity);
+
+    const wholeBundleTransfer = source.isMixed
+      && input.type === "Transfer"
+      && input.quantity === source.remainingPieces
+      && requiresDestination(input.type);
+
+    if (source.isMixed && !wholeBundleTransfer) {
+      if (!input.itemColor || !input.itemSize) {
+        throw new Error("Select a color and size line for mixed assortment bundle moves.");
+      }
+      const line = source.items.find(
+        (item) => mixedBundleLineKey(item.color, item.size) === mixedBundleLineKey(input.itemColor!, input.itemSize!)
+      );
+      if (!line) throw new Error(`No ${input.itemColor} ${input.itemSize} line found in this bundle.`);
+      assertMoveQuantity(line.remaining, input.quantity);
+    } else {
+      assertMoveQuantity(source.remainingPieces, input.quantity);
+    }
 
     const outflow = isOutflowTransaction(input.type);
     let toWarehouse = null as Awaited<ReturnType<typeof this.prisma.warehouse.findUnique>>;
@@ -528,28 +759,55 @@ export class BundleInventoryService {
       toWarehouse = await this.prisma.warehouse.findUnique({ where: { id: input.toWarehouseId } });
       if (!toWarehouse) throw new Error("Destination warehouse not found.");
       const sameWarehouse = source.warehouseId === input.toWarehouseId && (source.storageLocationId ?? null) === (input.toLocationId ?? null);
-      if (sameWarehouse) throw new Error("Destination must differ from the current location.");
+      if (sameWarehouse && !wholeBundleTransfer) throw new Error("Destination must differ from the current location.");
     }
 
     const referenceNumber = buildReferenceNumber(outflow ? "OUT" : "TRF");
     const newRemaining = source.remainingPieces - input.quantity;
-    const sourceQr = await buildBundleQr({
-      id: source.id,
-      bundleNumber: source.bundleNumber,
-      qrCodeNumber: source.qrCodeNumber,
-      productCatalogId: source.productCatalogId,
-      color: source.color,
-      colorCode: source.colorCode ?? undefined,
-      size: source.size,
-      remainingPieces: newRemaining,
-      warehouse: source.warehouse
+    const updatedItems = source.items.map((item) => {
+      if (!source.isMixed || wholeBundleTransfer) return item;
+      if (mixedBundleLineKey(item.color, item.size) !== mixedBundleLineKey(input.itemColor!, input.itemSize!)) return item;
+      return { ...item, remaining: item.remaining - input.quantity };
     });
 
-    const shouldCreateDestination = !outflow && toWarehouse && (
+    const movedLine = source.isMixed && !wholeBundleTransfer
+      ? updatedItems.find((item) => mixedBundleLineKey(item.color, item.size) === mixedBundleLineKey(input.itemColor!, input.itemSize!))
+      : null;
+
+    const sourceQr = await buildBundleQr(
+      {
+        id: source.id,
+        bundleNumber: source.bundleNumber,
+        qrCodeNumber: source.qrCodeNumber,
+        productCatalogId: source.productCatalogId,
+        color: source.color,
+        colorCode: source.colorCode ?? undefined,
+        size: source.size,
+        remainingPieces: newRemaining,
+        warehouse: wholeBundleTransfer && toWarehouse ? toWarehouse : source.warehouse
+      },
+      source.isMixed
+        ? updatedItems.map((item) => ({
+            color: item.color,
+            colorCode: item.colorCode ?? undefined,
+            size: item.size,
+            remaining: item.remaining
+          }))
+        : undefined
+    );
+
+    const shouldCreateDestination = !outflow && toWarehouse && !wholeBundleTransfer && (
       input.type === "Transfer" || input.type === "Split" || input.type === "Return" || input.quantity < source.remainingPieces
     );
 
     const result = await this.prisma.$transaction(async (tx) => {
+      if (source.isMixed && !wholeBundleTransfer) {
+        await tx.bundleItem.update({
+          where: { id: movedLine!.id },
+          data: { remaining: movedLine!.remaining }
+        });
+      }
+
       const updatedSource = await tx.inventoryBundle.update({
         where: { id: source.id },
         data: {
@@ -557,9 +815,15 @@ export class BundleInventoryService {
           status: newRemaining === 0 ? "DEPLETED" : source.status,
           qrPayload: sourceQr.qrPayload,
           qrImageUrl: sourceQr.qrImageUrl,
-          version: { increment: 1 }
+          version: { increment: 1 },
+          ...(wholeBundleTransfer && toWarehouse
+            ? {
+                warehouseId: toWarehouse.id,
+                storageLocationId: input.toLocationId ?? null
+              }
+            : {})
         },
-        include: { warehouse: true, storageLocation: true }
+        include: bundleInclude
       });
 
       let destinationRow = null as any;
@@ -567,14 +831,18 @@ export class BundleInventoryService {
         const destBundleNumber = await nextBundleNumber(tx as unknown as PrismaClient, source.bundleNumber.split("-BND-")[0] || "LGM");
         const qrCodeNumber = await nextQrCodeNumber(tx as unknown as PrismaClient);
         const bundleId = crypto.randomUUID();
+        const destColor = movedLine?.color ?? source.color;
+        const destColorCode = movedLine?.colorCode ?? source.colorCode ?? undefined;
+        const destSize = movedLine?.size ?? source.size;
+        const destVariantId = movedLine?.variantId ?? source.variantId;
         const destinationQr = await buildBundleQr({
           id: bundleId,
           bundleNumber: destBundleNumber,
           qrCodeNumber,
           productCatalogId: source.productCatalogId,
-          color: source.color,
-          colorCode: source.colorCode ?? undefined,
-          size: source.size,
+          color: destColor,
+          colorCode: destColorCode,
+          size: destSize,
           remainingPieces: input.quantity,
           warehouse: toWarehouse
         });
@@ -586,13 +854,14 @@ export class BundleInventoryService {
             qrPayload: destinationQr.qrPayload,
             qrImageUrl: destinationQr.qrImageUrl,
             productCatalogId: source.productCatalogId,
-            variantId: source.variantId,
+            variantId: destVariantId,
             productName: source.productName,
             style: source.style,
             fabric: source.fabric,
-            color: source.color,
-            colorCode: source.colorCode,
-            size: source.size,
+            color: destColor,
+            colorCode: destColorCode,
+            size: destSize,
+            isMixed: false,
             piecesPerBundle: input.quantity,
             remainingPieces: input.quantity,
             unitCost: source.unitCost,
@@ -602,7 +871,7 @@ export class BundleInventoryService {
             parentBundleId: source.id,
             status: "ACTIVE"
           },
-          include: { warehouse: true, storageLocation: true }
+          include: bundleInclude
         });
         await tx.qrCodeHistory.create({
           data: {
@@ -620,6 +889,8 @@ export class BundleInventoryService {
           bundleId: source.id,
           type: transactionTypeToDb[input.type] as any,
           quantity: input.quantity,
+          itemColor: movedLine?.color ?? input.itemColor ?? null,
+          itemSize: movedLine?.size ?? input.itemSize ?? null,
           fromWarehouseId: source.warehouseId,
           fromLocationId: source.storageLocationId,
           toWarehouseId: toWarehouse?.id ?? null,
@@ -679,24 +950,34 @@ export class BundleInventoryService {
   async reprintQr(bundleId: string, ctx: AuditContext): Promise<InventoryBundle> {
     const row = await this.prisma.inventoryBundle.findUnique({
       where: { id: bundleId },
-      include: { warehouse: true, storageLocation: true }
+      include: bundleInclude
     });
     if (!row) throw new Error("Bundle not found.");
-    const refreshed = await buildBundleQr({
-      id: row.id,
-      bundleNumber: row.bundleNumber,
-      qrCodeNumber: row.qrCodeNumber,
-      productCatalogId: row.productCatalogId,
-      color: row.color,
-      colorCode: row.colorCode ?? undefined,
-      size: row.size,
-      remainingPieces: row.remainingPieces,
-      warehouse: row.warehouse
-    });
+    const refreshed = await buildBundleQr(
+      {
+        id: row.id,
+        bundleNumber: row.bundleNumber,
+        qrCodeNumber: row.qrCodeNumber,
+        productCatalogId: row.productCatalogId,
+        color: row.color,
+        colorCode: row.colorCode ?? undefined,
+        size: row.size,
+        remainingPieces: row.remainingPieces,
+        warehouse: row.warehouse
+      },
+      row.isMixed
+        ? row.items.map((item) => ({
+            color: item.color,
+            colorCode: item.colorCode ?? undefined,
+            size: item.size,
+            remaining: item.remaining
+          }))
+        : undefined
+    );
     const updated = await this.prisma.inventoryBundle.update({
       where: { id: bundleId },
       data: { qrPayload: refreshed.qrPayload, qrImageUrl: refreshed.qrImageUrl },
-      include: { warehouse: true, storageLocation: true }
+      include: bundleInclude
     });
     await this.prisma.qrCodeHistory.create({
       data: {
