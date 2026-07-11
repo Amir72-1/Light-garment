@@ -1192,8 +1192,8 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
   const editTimes = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateAttendanceTimes(token, body), onSuccess: invalidate });
   const updateSettings = useMutation({
     mutationFn: (body: AttendanceSettings) => api.updateAttendanceSettings(token, body),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["attendance-settings"] });
+    onSuccess: (data) => {
+      queryClient.setQueryData(["attendance-settings"], data);
       invalidate();
     }
   });
@@ -1213,7 +1213,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
               <h3 className="text-lg font-bold">Attendance time settings</h3>
               <p className="text-sm text-slate-500">Start time controls Late status. End time defines the expected workday finish.</p>
             </div>
-            <form className="grid gap-2 sm:grid-cols-[140px_140px_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateSettings.mutate({ startTime: String(form.startTime), endTime: String(form.endTime) }); }}>
+            <form key={`${settings.data.startTime}-${settings.data.endTime}`} className="grid gap-2 sm:grid-cols-[140px_140px_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateSettings.mutate({ startTime: String(form.startTime), endTime: String(form.endTime) }); }}>
               <Field label="Start time"><Input name="startTime" placeholder="HH:MM" defaultValue={settings.data.startTime} required /></Field>
               <Field label="End time"><Input name="endTime" placeholder="HH:MM" defaultValue={settings.data.endTime} required /></Field>
               <Button className="self-end" disabled={updateSettings.isPending}>{updateSettings.isPending ? "Saving..." : "Save times"}</Button>
@@ -1258,7 +1258,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                   </td>
                   {isOwner && (
                     <td>
-                      <form className="grid min-w-[220px] gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); editTimes.mutate({ employeeId: record.employeeId, date, checkInTime: toAttendanceIso(date, String(form.checkInTime)), checkOutTime: toAttendanceIso(date, String(form.checkOutTime)) }); }}>
+                      <form key={`${record.employeeId}-${record.checkInTime ?? ""}-${record.checkOutTime ?? ""}`} className="grid min-w-[220px] gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); editTimes.mutate({ employeeId: record.employeeId, date, checkInTime: toAttendanceIso(date, String(form.checkInTime)), checkOutTime: toAttendanceIso(date, String(form.checkOutTime)) }); }}>
                         <Input name="checkInTime" placeholder="HH:MM" aria-label={`${record.employeeName} check-in time`} defaultValue={timeInputValue(record.checkInTime)} />
                         <Input name="checkOutTime" placeholder="HH:MM" aria-label={`${record.employeeName} check-out time`} defaultValue={timeInputValue(record.checkOutTime)} />
                         <Button variant="secondary" disabled={editTimes.isPending}>Save</Button>

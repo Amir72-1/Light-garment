@@ -253,8 +253,30 @@ function productFromDb(row: any): Product {
 export class PrismaRepository {
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
+  private attendanceConfigLoaded = false;
 
   constructor(private prisma: PrismaClient) {}
+
+  private async ensureAttendanceConfig() {
+    if (this.attendanceConfigLoaded) return;
+    const row = await this.prisma.appSetting.findUnique({ where: { key: "attendance" } });
+    if (row?.value && typeof row.value === "object" && row.value !== null) {
+      const value = row.value as Record<string, unknown>;
+      if (typeof value.startTime === "string" && typeof value.endTime === "string") {
+        this.attendanceConfig = { startTime: value.startTime, endTime: value.endTime };
+      }
+    }
+    this.attendanceConfigLoaded = true;
+  }
+
+  private async persistAttendanceConfig() {
+    const value = { startTime: this.attendanceConfig.startTime, endTime: this.attendanceConfig.endTime };
+    await this.prisma.appSetting.upsert({
+      where: { key: "attendance" },
+      create: { key: "attendance", value },
+      update: { value }
+    });
+  }
 
   static create() {
     const connectionString = process.env.DATABASE_URL;
@@ -495,6 +517,7 @@ export class PrismaRepository {
   }
 
   async attendanceToday(date = todayKey()) {
+    await this.ensureAttendanceConfig();
     const [employees, rows] = await Promise.all([
       this.prisma.employee.findMany({ orderBy: { fullName: "asc" } }),
       this.prisma.attendance.findMany({ where: { date }, include: { employee: true } })
@@ -516,15 +539,19 @@ export class PrismaRepository {
   }
 
   async attendanceSettings() {
+    await this.ensureAttendanceConfig();
     return this.attendanceConfig;
   }
 
   async updateAttendanceSettings(settings: AttendanceSettings) {
+    await this.ensureAttendanceConfig();
     this.attendanceConfig = settings;
+    await this.persistAttendanceConfig();
     return this.attendanceConfig;
   }
 
   async employeeAttendanceMonth(employeeId: string, month = todayKey().slice(0, 7)): Promise<EmployeeAttendanceProfile | null> {
+    await this.ensureAttendanceConfig();
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
     const rows = await this.prisma.attendance.findMany({
@@ -539,6 +566,7 @@ export class PrismaRepository {
   }
 
   async checkIn(employeeId: string, date = todayKey(), checkInTime = new Date().toISOString()) {
+    await this.ensureAttendanceConfig();
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
     const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
@@ -554,6 +582,7 @@ export class PrismaRepository {
   }
 
   async checkOut(employeeId: string, date = todayKey(), checkOutTime = new Date().toISOString()) {
+    await this.ensureAttendanceConfig();
     const existing = await this.prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
     const row = await this.prisma.attendance.update({
       where: { employeeId_date: { employeeId, date } },
@@ -565,6 +594,7 @@ export class PrismaRepository {
   }
 
   async manualAttendance(input: { employeeId: string; date?: string; status: AttendanceRecord["status"]; checkInTime?: string; checkOutTime?: string }) {
+    await this.ensureAttendanceConfig();
     const employee = await this.prisma.employee.findUnique({ where: { id: input.employeeId } });
     if (!employee) return null;
     const date = input.date || todayKey();
@@ -593,6 +623,7 @@ export class PrismaRepository {
   }
 
   async updateAttendanceTimes(input: { employeeId: string; date: string; checkInTime?: string; checkOutTime?: string }) {
+    await this.ensureAttendanceConfig();
     const employee = await this.prisma.employee.findUnique({ where: { id: input.employeeId } });
     if (!employee) return null;
     const status = input.checkInTime ? (isLate(input.checkInTime, this.attendanceConfig.startTime) ? "LATE" : "PRESENT") : "ABSENT";
@@ -725,6 +756,7 @@ export class PrismaRepository {
   }
 
   private async calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
+    await this.ensureAttendanceConfig();
     const key = monthKey(month, year);
     const rows = await this.prisma.attendance.findMany({ where: { employeeId: employee.id, date: { startsWith: key } }, include: { employee: true } });
     const attendance = rows.map((row) => attendanceFromRow(row, this.attendanceConfig));
