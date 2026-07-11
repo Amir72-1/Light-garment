@@ -143,6 +143,32 @@ async function writeAudit(
   });
 }
 
+async function buildBundleQr(row: {
+  id: string;
+  bundleNumber: string;
+  qrCodeNumber: string;
+  productCatalogId: string;
+  color: string;
+  size: string;
+  remainingPieces: number;
+  warehouse: { code: string };
+}) {
+  const payload: QrBundlePayload = {
+    v: 1,
+    bundleId: row.id,
+    bundleNumber: row.bundleNumber,
+    qrCodeNumber: row.qrCodeNumber,
+    productCatalogId: row.productCatalogId,
+    color: row.color,
+    size: row.size,
+    quantity: row.remainingPieces,
+    warehouseCode: row.warehouse.code
+  };
+  const qrPayload = encodeQrPayload(payload);
+  const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+  return { qrPayload, qrImageUrl, payload };
+}
+
 async function ensureFabric(prisma: PrismaClient, name?: string, fabricId?: string) {
   if (fabricId) {
     const existing = await prisma.fabricType.findUnique({ where: { id: fabricId } });
@@ -355,19 +381,16 @@ export class BundleInventoryService {
       const bundleNumber = await nextBundleNumber(this.prisma, prefix);
       const qrCodeNumber = await nextQrCodeNumber(this.prisma);
       const bundleId = crypto.randomUUID();
-      const payload: QrBundlePayload = {
-        v: 1,
-        bundleId,
+      const { qrPayload, qrImageUrl } = await buildBundleQr({
+        id: bundleId,
         bundleNumber,
         qrCodeNumber,
         productCatalogId: catalog.id,
         color: color.name,
         size: size.code,
-        quantity: input.piecesPerBundle,
-        warehouseCode: warehouse.code
-      };
-      const qrPayload = encodeQrPayload({ ...payload, bundleId });
-      const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+        remainingPieces: input.piecesPerBundle,
+        warehouse
+      });
 
       const row = await this.prisma.inventoryBundle.create({
         data: {
@@ -442,12 +465,25 @@ export class BundleInventoryService {
     if (sameWarehouse) throw new Error("Destination must differ from the current location.");
 
     const referenceNumber = buildReferenceNumber("TRF");
+    const newRemaining = source.remainingPieces - input.quantity;
+    const sourceQr = await buildBundleQr({
+      id: source.id,
+      bundleNumber: source.bundleNumber,
+      qrCodeNumber: source.qrCodeNumber,
+      productCatalogId: source.productCatalogId,
+      color: source.color,
+      size: source.size,
+      remainingPieces: newRemaining,
+      warehouse: source.warehouse
+    });
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedSource = await tx.inventoryBundle.update({
         where: { id: source.id },
         data: {
-          remainingPieces: source.remainingPieces - input.quantity,
-          status: source.remainingPieces - input.quantity === 0 ? "DEPLETED" : source.status,
+          remainingPieces: newRemaining,
+          status: newRemaining === 0 ? "DEPLETED" : source.status,
+          qrPayload: sourceQr.qrPayload,
+          qrImageUrl: sourceQr.qrImageUrl,
           version: { increment: 1 }
         },
         include: { warehouse: true, storageLocation: true }
@@ -506,11 +542,23 @@ export class BundleInventoryService {
           }
         });
       } else {
+        const movedQr = await buildBundleQr({
+          id: source.id,
+          bundleNumber: source.bundleNumber,
+          qrCodeNumber: source.qrCodeNumber,
+          productCatalogId: source.productCatalogId,
+          color: source.color,
+          size: source.size,
+          remainingPieces: source.remainingPieces,
+          warehouse: toWarehouse
+        });
         destinationRow = await tx.inventoryBundle.update({
           where: { id: source.id },
           data: {
             warehouseId: toWarehouse.id,
             storageLocationId: input.toLocationId ?? null,
+            qrPayload: movedQr.qrPayload,
+            qrImageUrl: movedQr.qrImageUrl,
             version: { increment: 1 }
           },
           include: { warehouse: true, storageLocation: true }
@@ -583,6 +631,21 @@ export class BundleInventoryService {
       include: { warehouse: true, storageLocation: true }
     });
     if (!row) throw new Error("Bundle not found.");
+    const refreshed = await buildBundleQr({
+      id: row.id,
+      bundleNumber: row.bundleNumber,
+      qrCodeNumber: row.qrCodeNumber,
+      productCatalogId: row.productCatalogId,
+      color: row.color,
+      size: row.size,
+      remainingPieces: row.remainingPieces,
+      warehouse: row.warehouse
+    });
+    const updated = await this.prisma.inventoryBundle.update({
+      where: { id: bundleId },
+      data: { qrPayload: refreshed.qrPayload, qrImageUrl: refreshed.qrImageUrl },
+      include: { warehouse: true, storageLocation: true }
+    });
     await this.prisma.qrCodeHistory.create({
       data: {
         bundleId: row.id,
@@ -592,7 +655,7 @@ export class BundleInventoryService {
         ipAddress: ctx.ipAddress ?? null
       }
     });
-    return bundleFromRow(row);
+    return bundleFromRow(updated);
   }
 
   async syncOfflineOperations(operations: OfflineSyncOperation[], ctx: AuditContext): Promise<OfflineSyncResult[]> {

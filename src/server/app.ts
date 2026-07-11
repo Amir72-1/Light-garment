@@ -19,6 +19,7 @@ const roles = ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] as 
 const jwtSecret = process.env.JWT_SECRET || "development-only-secret-change-me";
 const uploadDir = path.resolve(process.cwd(), "uploads");
 const clientDir = path.resolve(process.cwd(), "dist-client");
+const appVersion = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")).version as string;
 
 fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -337,7 +338,13 @@ export async function createApp() {
   app.use("/uploads", express.static(uploadDir));
 
   app.get("/api/health", (_request, response) => {
-    response.json({ status: "ok", service: "light-garment-erp" });
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      status: "ok",
+      service: "light-garment-erp",
+      version: appVersion,
+      features: { bundleInventory: true }
+    });
   });
 
   app.post("/api/auth/login", asyncRoute(async (request, response) => {
@@ -796,8 +803,15 @@ export async function createApp() {
   }));
 
   if (fs.existsSync(clientDir)) {
-    app.use(express.static(clientDir));
+    app.use(express.static(clientDir, {
+      setHeaders(response, filePath) {
+        if (filePath.endsWith("index.html")) {
+          response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        }
+      }
+    }));
     app.get(/^(?!\/api).*/, (_request, response) => {
+      response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       response.sendFile(path.join(clientDir, "index.html"));
     });
   }

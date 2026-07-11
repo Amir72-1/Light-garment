@@ -1618,6 +1618,7 @@ function Inventory({ token }: { token: string }) {
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <Card>
           <h2 className="text-xl font-black">Add shirt SKU</h2>
+          <p className="mt-1 text-sm text-amber-700">For bundle QR codes with piece-level tracking, use the <b>QR bundle inventory</b> tab instead.</p>
           <form className="mt-4 grid gap-3" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); productCreate.mutate(Object.fromEntries(form) as Partial<Product>); event.currentTarget.reset(); }}>
             <Field label="Product name"><Input name="productName" required /></Field>
             <div className="grid grid-cols-2 gap-3"><Field label="Model"><Input name="model" required /></Field><Field label="Color"><Input name="color" required /></Field></div>

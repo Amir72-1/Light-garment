@@ -708,6 +708,7 @@ describe("Bundle inventory API", () => {
 
     expect(moveOk.body.source.remainingPieces).toBe(18);
     expect(moveOk.body.destination.remainingPieces).toBe(7);
+    expect(JSON.parse(moveOk.body.source.qrPayload).quantity).toBe(18);
 
     const overMove = await request(app)
       .post("/api/bundles/move")

@@ -185,6 +185,22 @@ export class BundleInventoryDemo {
     return created;
   }
 
+  private async refreshBundleQr(bundle: InventoryBundle, warehouseCode = bundle.warehouseCode) {
+    const payload: QrBundlePayload = {
+      v: 1,
+      bundleId: bundle.id,
+      bundleNumber: bundle.bundleNumber,
+      qrCodeNumber: bundle.qrCodeNumber,
+      productCatalogId: bundle.productCatalogId,
+      color: bundle.color,
+      size: bundle.size,
+      quantity: bundle.remainingPieces,
+      warehouseCode
+    };
+    bundle.qrPayload = encodeQrPayload(payload);
+    bundle.qrImageUrl = await QRCode.toDataURL(bundle.qrPayload, { margin: 1, width: 256 });
+  }
+
   async moveBundlePieces(input: MoveBundleInput, ctx: AuditContext) {
     const source = this.bundles.find((item) => item.id === input.bundleId);
     if (!source) throw new Error("Bundle not found.");
@@ -202,6 +218,7 @@ export class BundleInventoryDemo {
     source.status = source.remainingPieces === 0 ? "Depleted" : source.status;
     source.version += 1;
     source.updatedAt = nowIso();
+    await this.refreshBundleQr(source);
 
     let destination: InventoryBundle | undefined;
     if (input.quantity < source.remainingPieces + input.quantity || input.type === "Transfer" || input.type === "Split") {
@@ -289,6 +306,7 @@ export class BundleInventoryDemo {
   async reprintQr(bundleId: string) {
     const bundle = this.bundles.find((item) => item.id === bundleId);
     if (!bundle) throw new Error("Bundle not found.");
+    await this.refreshBundleQr(bundle);
     return bundle;
   }
 

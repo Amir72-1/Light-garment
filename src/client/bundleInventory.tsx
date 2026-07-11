@@ -266,10 +266,47 @@ export function BundleInventoryPanel({ token }: { token: string }) {
         notify("success", "Move saved offline. It will sync when you reconnect.");
       } else {
         setSelectedBundle(result.result.source);
-        setScanResult((current) => (current ? { ...current, bundle: result.result.source, remainingPieces: result.result.source.remainingPieces } : current));
-        notify("success", `Moved ${result.result.transaction.quantity} pieces.`);
+        setScanResult({
+          bundle: result.result.source,
+          productName: result.result.source.productName,
+          style: result.result.source.style,
+          color: result.result.source.color,
+          size: result.result.source.size,
+          bundleNumber: result.result.source.bundleNumber,
+          remainingPieces: result.result.source.remainingPieces,
+          warehouse: result.result.source.warehouseName,
+          shelfLocation: result.result.source.storageLocationName,
+          status: result.result.source.status
+        });
+        notify("success", `Moved ${result.result.transaction.quantity} pieces. QR updated.`);
         invalidateBundleQueries();
       }
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const reprintMutation = useMutation({
+    mutationFn: (bundleId: string) => api.reprintBundleQr(token, bundleId),
+    onSuccess: (bundle) => {
+      setSelectedBundle(bundle);
+      setScanResult((current) =>
+        current?.bundle.id === bundle.id
+          ? {
+              bundle,
+              productName: bundle.productName,
+              style: bundle.style,
+              color: bundle.color,
+              size: bundle.size,
+              bundleNumber: bundle.bundleNumber,
+              remainingPieces: bundle.remainingPieces,
+              warehouse: bundle.warehouseName,
+              shelfLocation: bundle.storageLocationName,
+              status: bundle.status
+            }
+          : current
+      );
+      notify("success", "QR code refreshed with current bundle data.");
+      invalidateBundleQueries();
     },
     onError: (error: Error) => notify("error", error.message)
   });
@@ -328,6 +365,16 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
   const pendingCount = queued.filter((item) => item.status === "pending").length;
   const failedCount = queued.filter((item) => item.status === "failed").length;
+
+  if (metadata.isError) {
+    return (
+      <Card>
+        <h2 className="text-xl font-black">QR bundle inventory unavailable</h2>
+        <p className="mt-2 text-sm text-rose-600">{metadata.error instanceof Error ? metadata.error.message : "Could not load bundle inventory."}</p>
+        <p className="mt-2 text-sm text-slate-500">If you just deployed, wait for Render to finish and hard-refresh the page (Ctrl+Shift+R).</p>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-6">
@@ -506,6 +553,14 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                     Download PDF
                   </Button>
                 </div>
+                <Button
+                  variant="ghost"
+                  disabled={reprintMutation.isPending}
+                  onClick={() => reprintMutation.mutate(selectedBundle.id)}
+                >
+                  {reprintMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Refresh QR code
+                </Button>
               </div>
             </Card>
           )}
