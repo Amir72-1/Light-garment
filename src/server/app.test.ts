@@ -346,6 +346,13 @@ describe("Light Garment ERP API", () => {
 
     expect(settings.body).toEqual({ startTime: "08:00", endTime: "16:30" });
 
+    const savedSettings = await request(app)
+      .get("/api/attendance/settings")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(savedSettings.body).toEqual({ startTime: "08:00", endTime: "16:30" });
+
     const defaultDate = "2026-01-01";
     await request(app)
       .post("/api/attendance/check-in")
