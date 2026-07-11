@@ -1,5 +1,9 @@
 export type RoleName = "Owner" | "Manager" | "Storekeeper" | "Salesperson" | "HR/Admin";
 
+import type { AppCalendar, AppLocale } from "./preferences.js";
+
+export type { AppLocale, AppCalendar, UserPreferences } from "./preferences.js";
+
 export type Department = "Production" | "Sales" | "Admin" | "Store";
 export type Gender = "Male" | "Female" | "Other";
 export type EmploymentType = "Full-time" | "Part-time" | "Contract";
@@ -12,6 +16,8 @@ export interface UserSession {
     name: string;
     email: string;
     role: RoleName;
+    locale: AppLocale;
+    calendar: AppCalendar;
   };
 }
 

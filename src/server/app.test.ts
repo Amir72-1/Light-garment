@@ -621,4 +621,31 @@ describe("Light Garment ERP API", () => {
 
     expect(attendance.body.some((record: { employeeId: string; status: string }) => record.employeeId === eligible.employee.id && record.status === "On leave")).toBe(true);
   });
+
+  it("lets any user update language and calendar preferences", async () => {
+    const { app, token } = await login("sales@lightgarment.example");
+
+    const loginResponse = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "sales@lightgarment.example", password: "Password123!" })
+      .expect(200);
+
+    expect(loginResponse.body.user.locale).toBe("en");
+    expect(loginResponse.body.user.calendar).toBe("gregorian");
+
+    const updated = await request(app)
+      .patch("/api/users/me/preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ locale: "am", calendar: "ethiopian" })
+      .expect(200);
+
+    expect(updated.body).toEqual({ locale: "am", calendar: "ethiopian" });
+
+    const saved = await request(app)
+      .get("/api/users/me/preferences")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(saved.body).toEqual({ locale: "am", calendar: "ethiopian" });
+  });
 });

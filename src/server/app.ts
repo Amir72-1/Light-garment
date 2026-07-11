@@ -37,6 +37,13 @@ const loginSchema = z.object({
   password: z.string().min(8)
 });
 
+const userPreferencesSchema = z.object({
+  locale: z.enum(["en", "am"]).optional(),
+  calendar: z.enum(["gregorian", "ethiopian"]).optional()
+}).refine((value) => value.locale !== undefined || value.calendar !== undefined, {
+  message: "At least one preference must be provided"
+});
+
 function normalizeDateInput(value: string) {
   const trimmed = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
@@ -617,6 +624,25 @@ export async function createApp() {
 
   app.get("/api/settings", auth, allow(...roles), asyncRoute(async (_request, response) => {
     response.json(await repository.settings());
+  }));
+
+  app.get("/api/users/me/preferences", auth, asyncRoute(async (request, response) => {
+    const preferences = await repository.getUserPreferences(request.user!.id);
+    if (!preferences) {
+      response.status(404).json({ message: "User not found" });
+      return;
+    }
+    response.json(preferences);
+  }));
+
+  app.patch("/api/users/me/preferences", auth, asyncRoute(async (request, response) => {
+    const parsed = userPreferencesSchema.parse(request.body);
+    const preferences = await repository.updateUserPreferences(request.user!.id, parsed);
+    if (!preferences) {
+      response.status(404).json({ message: "User not found" });
+      return;
+    }
+    response.json(preferences);
   }));
 
   app.get("/api/users", auth, allow("Owner"), asyncRoute(async (_request, response) => {

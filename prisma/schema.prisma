@@ -118,6 +118,8 @@ model User {
   sales              Sale[]
   salaryHistoryChanges SalaryHistory[]
   yearlyBreakRegistrations YearlyBreak[]
+  locale             String               @default("en")
+  calendar           String               @default("gregorian")
   isActive           Boolean              @default(true)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt

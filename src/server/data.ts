@@ -26,6 +26,7 @@ import type {
 } from "../shared/types.js";
 import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
+import { userPreferencesFromRecord, normalizeCalendar, normalizeLocale, type UserPreferences } from "../shared/preferences.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type UserRecord = {
@@ -34,6 +35,8 @@ type UserRecord = {
   email: string;
   passwordHash: string;
   role: RoleName;
+  locale?: string;
+  calendar?: string;
   isActive: boolean;
   lastSeenAt?: string;
   createdAt: string;
@@ -288,7 +291,20 @@ export class DemoRepository {
       return null;
     }
     user.lastSeenAt = nowIso();
-    return { id: user.id, name: user.name, email: user.email, role: user.role };
+    return { id: user.id, name: user.name, email: user.email, role: user.role, ...userPreferencesFromRecord(user) };
+  }
+
+  async getUserPreferences(userId: string) {
+    const user = this.users.find((candidate) => candidate.id === userId);
+    return user ? userPreferencesFromRecord(user) : null;
+  }
+
+  async updateUserPreferences(userId: string, input: Partial<UserPreferences>) {
+    const user = this.users.find((candidate) => candidate.id === userId);
+    if (!user) return null;
+    if (input.locale) user.locale = normalizeLocale(input.locale);
+    if (input.calendar) user.calendar = normalizeCalendar(input.calendar);
+    return userPreferencesFromRecord(user);
   }
 
   async listUsers() {

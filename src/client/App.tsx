@@ -32,20 +32,23 @@ import {
   touchSessionActivity
 } from "./session";
 import type { AttendanceRecord, AttendanceSettings, Department, Employee, EmploymentType, Gender, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, SalaryHistoryEntry, Sale, UserSession, YearlyBreakEligibility } from "../shared/types";
+import type { TranslationKey } from "../shared/i18n";
+import { userPreferencesFromRecord } from "../shared/preferences";
+import { PreferencesProvider, usePreferences } from "./preferences";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
 
-const navItems: Array<{ key: ModuleKey; label: string; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
-  { key: "employees", label: "Employees", icon: Users, roles: ["Owner", "Manager", "HR/Admin"] },
-  { key: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["Owner", "Manager", "HR/Admin"] },
-  { key: "payroll", label: "Payroll", icon: BadgeDollarSign, roles: ["Owner", "Manager", "HR/Admin"] },
-  { key: "inventory", label: "Shirts & Inventory", icon: Shirt, roles: ["Owner", "Manager", "Storekeeper", "Salesperson"] },
-  { key: "sales", label: "POS Sales", icon: BadgeDollarSign, roles: ["Owner", "Manager", "Salesperson"] },
-  { key: "production", label: "Production", icon: Factory, roles: ["Owner", "Manager"] },
-  { key: "reports", label: "Reports", icon: FileBarChart, roles: ["Owner", "Manager", "HR/Admin"] },
-  { key: "settings", label: "Settings", icon: Settings, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] }
+const navItems: Array<{ key: ModuleKey; labelKey: TranslationKey; icon: typeof LayoutDashboard; roles: RoleName[] }> = [
+  { key: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] },
+  { key: "employees", labelKey: "nav.employees", icon: Users, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "attendance", labelKey: "nav.attendance", icon: CalendarCheck, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "payroll", labelKey: "nav.payroll", icon: BadgeDollarSign, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "inventory", labelKey: "nav.inventory", icon: Shirt, roles: ["Owner", "Manager", "Storekeeper", "Salesperson"] },
+  { key: "sales", labelKey: "nav.sales", icon: BadgeDollarSign, roles: ["Owner", "Manager", "Salesperson"] },
+  { key: "production", labelKey: "nav.production", icon: Factory, roles: ["Owner", "Manager"] },
+  { key: "reports", labelKey: "nav.reports", icon: FileBarChart, roles: ["Owner", "Manager", "HR/Admin"] },
+  { key: "settings", labelKey: "nav.settings", icon: Settings, roles: ["Owner", "Manager", "Storekeeper", "Salesperson", "HR/Admin"] }
 ];
 
 function currency(value: number) {
@@ -85,10 +88,14 @@ export default function App() {
   };
 
   const handleLogin = (next: UserSession) => {
-    persistSession(next);
+    const normalized: UserSession = {
+      ...next,
+      user: { ...next.user, ...userPreferencesFromRecord(next.user) }
+    };
+    persistSession(normalized);
     setStaleUser(null);
     setSessionMessage(null);
-    setSession(next);
+    setSession(normalized);
   };
 
   useEffect(() => {
@@ -107,7 +114,10 @@ export default function App() {
       return;
     }
 
-    setSession(stored);
+    setSession({
+      ...stored,
+      user: { ...stored.user, ...userPreferencesFromRecord(stored.user) }
+    });
     touchSessionActivity();
     setSessionReady(true);
   }, []);
@@ -165,6 +175,42 @@ export default function App() {
     );
   }
 
+  return (
+    <PreferencesProvider session={session} onSessionChange={setSession}>
+      <AppShell
+        session={session}
+        active={active}
+        setActive={setActive}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        theme={theme}
+        setTheme={setTheme}
+        logout={logout}
+      />
+    </PreferencesProvider>
+  );
+}
+
+function AppShell({
+  session,
+  active,
+  setActive,
+  menuOpen,
+  setMenuOpen,
+  theme,
+  setTheme,
+  logout
+}: {
+  session: UserSession;
+  active: ModuleKey;
+  setActive: (key: ModuleKey) => void;
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
+  logout: () => void;
+}) {
+  const { t } = usePreferences();
   const visibleNav = navItems.filter((item) => item.roles.includes(session.user.role));
 
   return (
@@ -176,10 +222,10 @@ export default function App() {
             <LightGarmentLogo />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Light Garment</p>
-              <h1 className="text-xl font-black leading-tight">ERP Center</h1>
+              <h1 className="text-xl font-black leading-tight">{t("app.title")}</h1>
             </div>
           </div>
-          <p className="mt-3 text-sm text-emerald-100">Signed in as {session.user.role}</p>
+          <p className="mt-3 text-sm text-emerald-100">{t("app.signedInAs")} {session.user.role}</p>
         </div>
         <nav className="grid min-h-0 gap-2 pb-6">
           {visibleNav.map((item) => {
@@ -187,7 +233,7 @@ export default function App() {
             return (
               <button key={item.key} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold", active === item.key ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")} onClick={() => { setActive(item.key); setMenuOpen(false); }}>
                 <Icon className="h-4 w-4" />
-                {item.label}
+                {t(item.labelKey)}
               </button>
             );
           })}
@@ -198,14 +244,14 @@ export default function App() {
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button variant="secondary" className="h-9 w-9 shrink-0 px-0 lg:hidden" onClick={() => setMenuOpen((value) => !value)}><Menu className="h-4 w-4" /></Button>
             <div className="min-w-0">
-              <p className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:block">Production-ready garment ERP</p>
-              <h2 className="truncate text-sm font-bold sm:text-base">Light Garment Manufacturing PLC</h2>
+              <p className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:block">{t("app.subtitle")}</p>
+              <h2 className="truncate text-sm font-bold sm:text-base">{t("app.company")}</h2>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle theme={theme} onThemeChange={setTheme} />
-            <Button variant="ghost" className="h-9 px-3" aria-label="Logout" onClick={logout}>
-              <LogOut className="h-4 w-4" /> Logout
+            <Button variant="ghost" className="h-9 px-3" aria-label={t("action.logout")} onClick={logout}>
+              <LogOut className="h-4 w-4" /> {t("action.logout")}
             </Button>
           </div>
         </header>
@@ -334,6 +380,7 @@ function LightGarmentLogo({ compact = false }: { compact?: boolean }) {
 }
 
 function Dashboard({ token, role }: { token: string; role: RoleName }) {
+  const { formatDateTime } = usePreferences();
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.dashboard(token) });
   const canViewAttendance = ["Owner", "Manager", "HR/Admin"].includes(role);
   const attendanceStats = useQuery({ queryKey: ["attendance-stats-dashboard"], queryFn: () => api.attendanceStats(token), enabled: canViewAttendance });
@@ -363,7 +410,7 @@ function Dashboard({ token, role }: { token: string; role: RoleName }) {
         <Card>
           <h3 className="text-lg font-bold">Recent activity</h3>
           <div className="mt-4 grid gap-3">
-            {data.recentActivity.map((activity) => <div key={activity.id} className="rounded-xl border border-slate-100 p-3 text-sm"><p className="font-semibold">{activity.label}</p><p className="text-slate-500">{new Date(activity.at).toLocaleString()}</p></div>)}
+            {data.recentActivity.map((activity) => <div key={activity.id} className="rounded-xl border border-slate-100 p-3 text-sm"><p className="font-semibold">{activity.label}</p><p className="text-slate-500">{formatDateTime(activity.at)}</p></div>)}
           </div>
         </Card>
       </div>
@@ -376,6 +423,7 @@ function Metric({ title, value, icon }: { title: string; value: string | number;
 }
 
 function Employees({ token, role }: { token: string; role: RoleName }) {
+  const { formatDate, formatDateTime, formatTime } = usePreferences();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
@@ -513,7 +561,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full min-w-[2200px] text-left text-sm">
                   <thead className="text-slate-500"><tr><th className="py-2">Employee</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead>
-                  <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{record.date}</td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
+                  <tbody>{attendance.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-3 font-semibold">{record.employeeName}</td><td>{formatDate(record.date)}</td><td>{record.checkInTime ? formatTime(record.checkInTime) : "-"}</td><td>{record.checkOutTime ? formatTime(record.checkOutTime) : "-"}</td><td><Badge>{record.status}</Badge></td></tr>)}</tbody>
                 </table>
               </div>
             </Card>
@@ -531,7 +579,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                       <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge><Badge className="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200">Archived</Badge></div>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department}</p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">NIB: {employee.bankAccountNumber || "Not provided"}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">Archived {employee.archivedAt ? new Date(employee.archivedAt).toLocaleString() : ""}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Archived {employee.archivedAt ? formatDateTime(employee.archivedAt) : ""}</p>
                     </div>
                   </button>
                   {isOwner && (
@@ -591,6 +639,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
 }
 
 function YearlyBreakPanel({ token, isOwner }: { token: string; isOwner: boolean }) {
+  const { formatDate } = usePreferences();
   const queryClient = useQueryClient();
   const [year, setYear] = useState(new Date().getFullYear());
   const [registeringId, setRegisteringId] = useState<string | null>(null);
@@ -639,7 +688,7 @@ function YearlyBreakPanel({ token, isOwner }: { token: string; isOwner: boolean 
             {eligibility.data?.map((row) => (
               <tr key={row.employee.id} className="border-t dark:border-slate-800">
                 <td className="py-3 font-semibold">{row.employee.fullName}<p className="text-xs text-slate-500">{row.employee.employeeCode}</p></td>
-                <td>{row.employee.hireDate}</td>
+                <td>{formatDate(row.employee.hireDate)}</td>
                 <td>{row.monthsEmployed}</td>
                 <td>{row.entitlementDays} days</td>
                 <td><Badge className={row.eligible ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}>{row.eligible ? "Yes" : "No"}</Badge></td>
@@ -693,6 +742,7 @@ function EmployeeProfileDialog({
   onPermanentDelete: (employee: Employee) => void;
   permanentDeletePending?: boolean;
 }) {
+  const { formatDate, formatDateTime } = usePreferences();
   const queryClient = useQueryClient();
   const [showPhoto, setShowPhoto] = useState(false);
   const [showIdImages, setShowIdImages] = useState(false);
@@ -744,9 +794,9 @@ function EmployeeProfileDialog({
               Position: employee.position,
               Salary: currency(employee.salary),
               "Employment type": employee.employmentType,
-              "Hire date": employee.hireDate,
+              "Hire date": formatDate(employee.hireDate),
               Status: employee.status,
-              ...(employee.archivedAt ? { Archived: new Date(employee.archivedAt).toLocaleString() } : {})
+              ...(employee.archivedAt ? { Archived: formatDateTime(employee.archivedAt) } : {})
             }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2 dark:border-slate-800"><dt className="text-slate-500 dark:text-slate-400">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
           </dl>
           {(employee.idImageUrl || employee.idImageBackUrl) && (
@@ -814,7 +864,7 @@ function EmployeeProfileDialog({
                 <tbody>
                   {salaryHistory.data?.length ? salaryHistory.data.map((entry: SalaryHistoryEntry) => (
                     <tr key={entry.id} className="border-t dark:border-slate-800">
-                      <td className="py-2">{entry.effectiveDate}</td>
+                      <td className="py-2">{formatDate(entry.effectiveDate)}</td>
                       <td>{currency(entry.previousSalary)}</td>
                       <td className="font-semibold text-emerald-700 dark:text-emerald-300">{currency(entry.newSalary)}</td>
                       <td>{entry.reason || "—"}</td>
@@ -830,7 +880,7 @@ function EmployeeProfileDialog({
             <div className="mt-3 grid gap-2">
               {yearlyBreaks.data?.length ? yearlyBreaks.data.map((item) => (
                 <div key={item.id} className="rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
-                  <p className="font-semibold">{item.year}: {item.startDate} to {item.endDate} ({item.days} days)</p>
+                  <p className="font-semibold">{item.year}: {formatDate(item.startDate)} to {formatDate(item.endDate)} ({item.days} days)</p>
                   <p className="text-slate-500">{item.status}{item.notes ? ` · ${item.notes}` : ""}</p>
                 </div>
               )) : <p className="text-sm text-slate-500">No yearly break registered yet.</p>}
@@ -1166,6 +1216,7 @@ function Avatar({ employee, large = false, clickable = false, onClick }: { emplo
 }
 
 function Attendance({ token, role }: { token: string; role: RoleName }) {
+  const { formatDate, formatTime, formatMonth } = usePreferences();
   const queryClient = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const currentMonth = today.slice(0, 7);
@@ -1225,7 +1276,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-2xl font-black">Daily Attendance</h2>
-            <p className="text-sm text-slate-500">Start: {settings.data?.startTime || "09:00"} · End: {settings.data?.endTime || "17:00"} · Owner can edit times.</p>
+            <p className="text-sm text-slate-500">Start: {settings.data?.startTime || "09:00"} · End: {settings.data?.endTime || "17:00"} · {formatDate(date)}</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Input placeholder="Search employee" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -1246,8 +1297,8 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                   </td>
                   <td>{record.department}</td>
                   <td><AttendanceBadge status={record.status} /></td>
-                  <td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td>
-                  <td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td>
+                  <td>{record.checkInTime ? formatTime(record.checkInTime) : "-"}</td>
+                  <td>{record.checkOutTime ? formatTime(record.checkOutTime) : "-"}</td>
                   <td><HoursWithOvertime record={record} /></td>
                   <td>{formatOvertime(record.overtimeHours)}</td>
                   <td>
@@ -1312,7 +1363,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                 <thead className="text-slate-500"><tr><th className="py-2">Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Total hours</th><th>Overtime</th></tr></thead>
                 <tbody>
                   {monthReport.data.records.length ? monthReport.data.records.map((record) => (
-                    <tr key={record.id} className="border-t"><td className="py-3">{record.date}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? new Date(record.checkInTime).toLocaleTimeString() : "-"}</td><td>{record.checkOutTime ? new Date(record.checkOutTime).toLocaleTimeString() : "-"}</td><td><HoursWithOvertime record={record} /></td><td>{formatOvertime(record.overtimeHours)}</td></tr>
+                    <tr key={record.id} className="border-t"><td className="py-3">{formatDate(record.date)}</td><td><AttendanceBadge status={record.status} /></td><td>{record.checkInTime ? formatTime(record.checkInTime) : "-"}</td><td>{record.checkOutTime ? formatTime(record.checkOutTime) : "-"}</td><td><HoursWithOvertime record={record} /></td><td>{formatOvertime(record.overtimeHours)}</td></tr>
                   )) : <tr><td className="py-4 text-slate-500" colSpan={6}>No attendance records for this month.</td></tr>}
                 </tbody>
               </table>
@@ -1531,6 +1582,7 @@ function isPaidStatus(status: string) {
 }
 
 function Inventory({ token }: { token: string }) {
+  const { formatDateTime } = usePreferences();
   const queryClient = useQueryClient();
   const products = useQuery({ queryKey: ["products"], queryFn: () => api.products(token) });
   const inventory = useQuery({ queryKey: ["inventory"], queryFn: () => api.inventory(token) });
@@ -1610,9 +1662,9 @@ function Inventory({ token }: { token: string }) {
           <table className="w-full min-w-[2400px] text-left text-sm">
             <thead className="text-slate-500"><tr><th id="inventory-history-scroll-left" className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th id="inventory-history-scroll-right">Date</th></tr></thead>
             <tbody>
-              {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
-              {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{new Date(m.createdAt).toLocaleString()}</td></tr>)}
-              {sales.data?.flatMap((sale) => sale.items.map((item) => <tr key={`sale-${sale.id}-${item.productId}`} className="border-t"><td className="py-2">POS Sale</td><td>{item.productName}</td><td>{item.quantity}</td><td>pcs</td><td>{sale.invoiceNumber}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>))}
+              {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td></tr>)}
+              {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td></tr>)}
+              {sales.data?.flatMap((sale) => sale.items.map((item) => <tr key={`sale-${sale.id}-${item.productId}`} className="border-t"><td className="py-2">POS Sale</td><td>{item.productName}</td><td>{item.quantity}</td><td>pcs</td><td>{sale.invoiceNumber}</td><td>{formatDateTime(sale.createdAt)}</td></tr>))}
             </tbody>
           </table>
         </div>
@@ -1706,6 +1758,7 @@ function Production({ token }: { token: string }) {
 }
 
 function Reports({ token }: { token: string }) {
+  const { formatDateTime } = usePreferences();
   const reports = useQuery({ queryKey: ["reports"], queryFn: () => api.reports(token) });
   const data = reports.data as any;
   const exportReport = () => exportCsv("light-garment-reports.csv", [
@@ -1730,7 +1783,7 @@ function Reports({ token }: { token: string }) {
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 print:border-0 print:p-0 dark:border-slate-800 dark:bg-slate-950">
         <div className="hidden print:block">
           <h1 className="text-2xl font-black">Light Garment Manufacturing PLC Reports</h1>
-          <p className="mt-1 text-sm">Generated {new Date().toLocaleString()}</p>
+          <p className="mt-1 text-sm">Generated {formatDateTime(new Date())}</p>
         </div>
         <div className="mt-4 grid gap-5">
           <ReportTable title="Employee report" rows={[["Total employees", data?.employeeReport?.total], ["Active employees", data?.employeeReport?.active]]} />
@@ -1753,26 +1806,63 @@ function ReportTable({ title, rows }: { title: string; rows: Array<[string, stri
 
 function SettingsPage({ token, role, theme, onThemeChange }: { token: string; role: RoleName; theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
   const queryClient = useQueryClient();
+  const { t, locale, calendar, updatePreferences, saving, savedMessage, formatDateTime } = usePreferences();
+  const [language, setLanguage] = useState(locale);
+  const [calendarMode, setCalendarMode] = useState(calendar);
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.settings(token) });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api.users(token), enabled: role === "Owner" });
   const refreshUsers = () => queryClient.invalidateQueries({ queryKey: ["users"] });
   const createUser = useMutation({ mutationFn: (body: Record<string, unknown>) => api.createUser(token, body), onSuccess: refreshUsers });
   const updateUser = useMutation({ mutationFn: ({ user, body }: { user: ManagedUser; body: Record<string, unknown> }) => api.updateUser(token, user.id, body), onSuccess: refreshUsers });
   const deleteUser = useMutation({ mutationFn: (id: string) => api.deleteUser(token, id), onSuccess: refreshUsers });
+
+  useEffect(() => {
+    setLanguage(locale);
+    setCalendarMode(calendar);
+  }, [locale, calendar]);
+
   return (
     <div className="grid gap-6">
       <Card>
-        <h2 className="text-xl font-black">Company settings</h2>
+        <h2 className="text-xl font-black">{t("settings.regional")}</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("settings.regionalHint")}</p>
+        <form
+          className="mt-4 grid gap-3 md:grid-cols-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void updatePreferences({ locale: language, calendar: calendarMode });
+          }}
+        >
+          <Field label={t("settings.language")}>
+            <Select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}>
+              <option value="en">{t("settings.language.en")}</option>
+              <option value="am">{t("settings.language.am")}</option>
+            </Select>
+          </Field>
+          <Field label={t("settings.calendar")}>
+            <Select value={calendarMode} onChange={(event) => setCalendarMode(event.target.value as typeof calendarMode)}>
+              <option value="gregorian">{t("settings.calendar.gregorian")}</option>
+              <option value="ethiopian">{t("settings.calendar.ethiopian")}</option>
+            </Select>
+          </Field>
+          <div className="flex items-end">
+            <Button disabled={saving}>{saving ? t("action.saving") : t("action.save")}</Button>
+          </div>
+        </form>
+        {savedMessage && <p className="mt-3 text-sm font-semibold text-emerald-700 dark:text-emerald-300">{savedMessage}</p>}
+      </Card>
+      <Card>
+        <h2 className="text-xl font-black">{t("settings.company")}</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">{Object.entries(settings.data || {}).map(([key, value]) => <div key={key} className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950"><p className="text-sm capitalize text-slate-500 dark:text-slate-400">{key.replace(/([A-Z])/g, " $1")}</p><p className="font-bold">{String(value)}</p></div>)}</div>
       </Card>
       <Card>
-        <h2 className="text-xl font-black">Appearance</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use Light, Dark, or follow your system setting.</p>
+        <h2 className="text-xl font-black">{t("settings.appearance")}</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("settings.appearanceHint")}</p>
         <div className="mt-4 max-w-xs"><ThemeToggle theme={theme} onThemeChange={onThemeChange} /></div>
       </Card>
       {role === "Owner" && (
         <Card>
-          <h2 className="text-xl font-black">User management</h2>
+          <h2 className="text-xl font-black">{t("settings.users")}</h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Owner can add, suspend, delete users, change passwords, and see recent online status.</p>
           <form className="mt-4 grid gap-3 md:grid-cols-5" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); createUser.mutate({ name: form.name, email: form.email, password: form.password, role: form.role }); event.currentTarget.reset(); }}>
             <Input name="name" placeholder="Name" required />
@@ -1786,7 +1876,7 @@ function SettingsPage({ token, role, theme, onThemeChange }: { token: string; ro
           <div id="settings-users-scroll" className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[2400px] text-left text-sm">
               <thead className="text-slate-500"><tr><th id="settings-users-scroll-left" className="py-2">User</th><th>Role</th><th>Status</th><th>Online</th><th>Change password</th><th id="settings-users-scroll-right">Actions</th></tr></thead>
-              <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? "Online" : `Last seen ${user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "never"}`}</td><td><form className="action-row" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="action-row"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
+              <tbody>{users.data?.map((user) => <tr key={user.id} className="border-t"><td className="py-3"><p className="font-semibold">{user.name}</p><p className="text-xs text-slate-500">{user.email}</p></td><td>{user.role}</td><td>{user.isActive ? "Active" : "Suspended"}</td><td>{user.isOnline ? t("common.online") : `${t("common.lastSeen")} ${user.lastSeenAt ? formatDateTime(user.lastSeenAt) : t("common.never")}`}</td><td><form className="action-row" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); updateUser.mutate({ user, body: { password: form.password } }); event.currentTarget.reset(); }}><Input name="password" type="password" placeholder="New password" /><Button variant="secondary">Save</Button></form></td><td><div className="action-row"><Button variant="secondary" onClick={() => updateUser.mutate({ user, body: { isActive: !user.isActive } })}>{user.isActive ? "Suspend" : "Activate"}</Button><Button variant="danger" onClick={() => deleteUser.mutate(user.id)}>Delete</Button></div></td></tr>)}</tbody>
             </table>
           </div>
         </Card>

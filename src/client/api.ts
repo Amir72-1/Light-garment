@@ -22,6 +22,7 @@ import type {
   YearlyBreak,
   YearlyBreakEligibility
 } from "../shared/types";
+import type { UserPreferences } from "../shared/preferences.js";
 
 const baseUrl = import.meta.env.VITE_API_URL || "";
 
@@ -95,6 +96,8 @@ export const api = {
   updateProduction: (token: string, id: string, body: Partial<ProductionStage>) => request<ProductionStage>(`/api/production/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
   reports: (token: string) => request<Record<string, unknown>>("/api/reports", {}, token),
   settings: (token: string) => request<Record<string, string>>("/api/settings", {}, token),
+  userPreferences: (token: string) => request<UserPreferences>("/api/users/me/preferences", {}, token),
+  updateUserPreferences: (token: string, body: Partial<UserPreferences>) => request<UserPreferences>("/api/users/me/preferences", { method: "PATCH", body: JSON.stringify(body) }, token),
   users: (token: string) => request<ManagedUser[]>("/api/users", {}, token),
   createUser: (token: string, body: Record<string, unknown>) => request<ManagedUser>("/api/users", { method: "POST", body: JSON.stringify(body) }, token),
   updateUser: (token: string, id: string, body: Record<string, unknown>) => request<ManagedUser>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
