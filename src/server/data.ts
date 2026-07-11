@@ -1008,6 +1008,10 @@ export class DemoRepository {
   }
   async listStockTransactions(bundleId?: string) { return this.bundleInventory.listTransactions(bundleId); }
   async reprintBundleQr(bundleId: string, userId: string, ipAddress?: string) { return this.bundleInventory.reprintQr(bundleId); }
+  async createBundleColor(input: Parameters<BundleInventoryDemo["createColor"]>[0]) { return this.bundleInventory.createColor(input); }
+  async deleteInventoryBundle(bundleId: string, userId: string, ipAddress?: string) {
+    return this.bundleInventory.deleteBundle(bundleId);
+  }
   async syncInventoryOffline(operations: Parameters<BundleInventoryDemo["syncOfflineOperations"]>[0], userId: string, ipAddress?: string) {
     return this.bundleInventory.syncOfflineOperations(operations, { userId, ipAddress });
   }

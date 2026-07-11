@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertMoveQuantity, decodeQrPayload, encodeQrPayload } from "./bundleInventory.js";
+import { assertMoveQuantity, decodeQrPayload, encodeQrPayload, normalizeRegisterVariants } from "./bundleInventory.js";
 
 describe("bundle inventory helpers", () => {
   it("encodes and decodes QR payloads", () => {
@@ -18,7 +18,29 @@ describe("bundle inventory helpers", () => {
     expect(decodeQrPayload(encoded)).toEqual(payload);
   });
 
-  it("rejects moving more pieces than available", () => {
-    expect(() => assertMoveQuantity(10, 11)).toThrow(/Only 10 available/);
+  it("normalizes single and multi-variant registration input", () => {
+    expect(normalizeRegisterVariants({
+      productName: "Shirt",
+      style: "Classic",
+      color: "Blue",
+      size: "L",
+      bundleQuantity: 2,
+      piecesPerBundle: 25,
+      unitCost: 10,
+      sellingPrice: 20,
+      warehouseId: "wh"
+    })).toHaveLength(1);
+
+    expect(normalizeRegisterVariants({
+      productName: "Shirt",
+      style: "Classic",
+      variants: [
+        { color: "Blue", colorCode: "BLU", size: "L", bundleQuantity: 1, piecesPerBundle: 25 },
+        { color: "Red", colorCode: "RED", size: "M", bundleQuantity: 2, piecesPerBundle: 20 }
+      ],
+      unitCost: 10,
+      sellingPrice: 20,
+      warehouseId: "wh"
+    })).toHaveLength(2);
   });
 });

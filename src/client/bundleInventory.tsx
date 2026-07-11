@@ -15,7 +15,9 @@ import {
   ScanLine,
   Search,
   Split,
+  Trash2,
   Truck,
+  Plus,
   Wifi,
   WifiOff
 } from "lucide-react";
@@ -34,6 +36,7 @@ import type {
   InventoryBundle,
   MoveBundleInput,
   RegisterBundleInput,
+  RegisterBundleVariantInput,
   StockTransaction,
   StockTransactionType
 } from "../shared/bundleInventory.js";
@@ -61,6 +64,20 @@ function readImages(files: FileList | null) {
   );
 }
 
+function colorLabel(name: string, code?: string) {
+  return code ? `${name} (${code})` : name;
+}
+
+type VariantRow = {
+  key: string;
+  colorName: string;
+  colorCode: string;
+  size: string;
+  bundleQuantity: number;
+  piecesPerBundle: number;
+  isNewColor: boolean;
+};
+
 export function printBundleLabels(bundles: InventoryBundle[]) {
   const doc = new jsPDF({ unit: "mm", format: [80, 50] });
   bundles.forEach((bundle, index) => {
@@ -71,7 +88,7 @@ export function printBundleLabels(bundles: InventoryBundle[]) {
     doc.setFontSize(10);
     doc.text(bundle.productName.slice(0, 28), 28, 14);
     doc.setFontSize(8);
-    doc.text(`${bundle.color} · ${bundle.size} · ${bundle.remainingPieces} pcs`, 28, 20);
+    doc.text(`${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size} · ${bundle.remainingPieces} pcs`, 28, 20);
     doc.text(bundle.warehouseName, 28, 26);
     doc.text(bundle.bundleNumber, 4, 46);
   });
@@ -88,7 +105,7 @@ function printBundleLabelWindow(bundles: InventoryBundle[]) {
           <div>
             <div style="font-size:11px;color:#555">${bundle.qrCodeNumber}</div>
             <div style="font-size:16px;font-weight:700">${bundle.productName}</div>
-            <div style="font-size:12px">${bundle.color} · ${bundle.size} · ${bundle.remainingPieces} pcs</div>
+            <div style="font-size:12px">${colorLabel(bundle.color, bundle.colorCode)} · ${bundle.size} · ${bundle.remainingPieces} pcs</div>
             <div style="font-size:12px">${bundle.warehouseName}</div>
           </div>
         </div>
@@ -126,6 +143,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
   const [registerImages, setRegisterImages] = useState<string[]>([]);
   const [lastRegistered, setLastRegistered] = useState<InventoryBundle[]>([]);
   const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
+  const [variantRows, setVariantRows] = useState<VariantRow[]>([]);
 
   const metadata = useQuery({ queryKey: ["bundle-metadata"], queryFn: () => api.bundleMetadata(token) });
   const locations = useQuery({
@@ -203,6 +221,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     if (!selectedWarehouseId) setSelectedWarehouseId(metadata.data.warehouses[0].id);
     if (!moveWarehouseId) setMoveWarehouseId(metadata.data.warehouses[0].id);
   }, [metadata.data, selectedWarehouseId, moveWarehouseId]);
+
+  useEffect(() => {
+    if (!metadata.data || variantRows.length) return;
+    const firstColor = metadata.data.colors[0];
+    const firstSize = metadata.data.sizes[0];
+    if (!firstColor || !firstSize) return;
+    setVariantRows([{
+      key: "row-1",
+      colorName: firstColor.name,
+      colorCode: firstColor.code ?? firstColor.name.slice(0, 3).toUpperCase(),
+      size: firstSize.code,
+      bundleQuantity: 1,
+      piecesPerBundle: 25,
+      isNewColor: false
+    }]);
+  }, [metadata.data, variantRows.length]);
 
   const scanMutation = useMutation({
     mutationFn: (code: string) => api.scanBundle(token, code),
@@ -296,6 +330,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
               productName: bundle.productName,
               style: bundle.style,
               color: bundle.color,
+              colorCode: bundle.colorCode,
               size: bundle.size,
               bundleNumber: bundle.bundleNumber,
               remainingPieces: bundle.remainingPieces,
@@ -310,6 +345,24 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     },
     onError: (error: Error) => notify("error", error.message)
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (bundleId: string) => api.deleteBundle(token, bundleId),
+    onSuccess: (_result, bundleId) => {
+      if (selectedBundle?.id === bundleId) {
+        setSelectedBundle(null);
+        setScanResult(null);
+      }
+      notify("success", "Bundle deleted.");
+      invalidateBundleQueries();
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const handleDeleteBundle = useCallback((bundle: InventoryBundle) => {
+    if (!window.confirm(`Delete bundle ${bundle.bundleNumber}? This cannot be undone.`)) return;
+    deleteMutation.mutate(bundle.id);
+  }, [deleteMutation]);
 
   const splitMutation = useMutation({
     mutationFn: async (input: Parameters<typeof api.splitBundle>[1]) => {
@@ -462,7 +515,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                 <div className="grid gap-1 text-sm">
                   <p className="text-lg font-bold">{scanResult.productName}</p>
                   <p>{scanResult.style}</p>
-                  <p>{scanResult.color} · {scanResult.size}</p>
+                  <p>{colorLabel(scanResult.color, scanResult.colorCode)} · {scanResult.size}</p>
                   <p>Bundle {scanResult.bundleNumber}</p>
                   <p>{scanResult.remainingPieces} pieces remaining</p>
                   <p>{scanResult.warehouse}{scanResult.shelfLocation ? ` · ${scanResult.shelfLocation}` : ""}</p>
@@ -561,6 +614,14 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   {reprintMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Refresh QR code
                 </Button>
+                <Button
+                  variant="danger"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => handleDeleteBundle(selectedBundle)}
+                >
+                  {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Delete bundle
+                </Button>
               </div>
             </Card>
           )}
@@ -568,22 +629,27 @@ export function BundleInventoryPanel({ token }: { token: string }) {
       )}
 
       {tab === "register" && (
-        <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
+        <div className="grid gap-6 xl:grid-cols-[520px_1fr]">
           <Card>
             <h3 className="text-lg font-bold">Register inventory bundles</h3>
+            <p className="mt-1 text-sm text-slate-500">Add multiple color and size combinations in one registration. Each combination gets its own QR codes.</p>
             <form
               className="mt-4 grid gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
+                const variants: RegisterBundleVariantInput[] = variantRows.map((row) => ({
+                  color: row.colorName.trim(),
+                  colorCode: row.colorCode.trim().toUpperCase(),
+                  size: row.size,
+                  bundleQuantity: row.bundleQuantity,
+                  piecesPerBundle: row.piecesPerBundle
+                }));
                 registerMutation.mutate({
                   productName: String(form.get("productName")),
                   style: String(form.get("style")),
                   fabric: String(form.get("fabric") || ""),
-                  color: String(form.get("color")),
-                  size: String(form.get("size")),
-                  bundleQuantity: Number(form.get("bundleQuantity")),
-                  piecesPerBundle: Number(form.get("piecesPerBundle")),
+                  variants,
                   unitCost: Number(form.get("unitCost")),
                   sellingPrice: Number(form.get("sellingPrice")),
                   warehouseId: String(form.get("warehouseId")),
@@ -600,22 +666,120 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   {metadata.data?.fabrics.map((fabric) => <option key={fabric.id} value={fabric.name}>{fabric.name}</option>)}
                 </Select>
               </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Color">
-                  <Select name="color" required>
-                    {metadata.data?.colors.map((color) => <option key={color.id} value={color.name}>{color.name}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Size">
-                  <Select name="size" required>
-                    {metadata.data?.sizes.map((size) => <option key={size.id} value={size.code}>{size.code}</option>)}
-                  </Select>
-                </Field>
+
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold">Color / size variants</h4>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      setVariantRows((rows) => [
+                        ...rows,
+                        {
+                          key: `row-${Date.now()}`,
+                          colorName: metadata.data?.colors[0]?.name ?? "",
+                          colorCode: metadata.data?.colors[0]?.code ?? "CLR",
+                          size: metadata.data?.sizes[0]?.code ?? "M",
+                          bundleQuantity: 1,
+                          piecesPerBundle: 25,
+                          isNewColor: false
+                        }
+                      ])
+                    }
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add variant
+                  </Button>
+                </div>
+                {variantRows.map((row, index) => (
+                  <div key={row.key} className="grid gap-3 rounded-2xl border border-slate-100 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold">Variant {index + 1}</p>
+                      {variantRows.length > 1 && (
+                        <Button type="button" variant="ghost" onClick={() => setVariantRows((rows) => rows.filter((item) => item.key !== row.key))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Color">
+                        <Select
+                          value={row.isNewColor ? "__new__" : row.colorName}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            if (value === "__new__") {
+                              setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, isNewColor: true, colorName: "", colorCode: "" } : item));
+                              return;
+                            }
+                            const selected = metadata.data?.colors.find((color) => color.name === value);
+                            setVariantRows((rows) =>
+                              rows.map((item) =>
+                                item.key === row.key
+                                  ? { ...item, isNewColor: false, colorName: value, colorCode: selected?.code ?? value.slice(0, 3).toUpperCase() }
+                                  : item
+                              )
+                            );
+                          }}
+                        >
+                          {metadata.data?.colors.map((color) => (
+                            <option key={color.id} value={color.name}>{colorLabel(color.name, color.code)}</option>
+                          ))}
+                          <option value="__new__">+ New color</option>
+                        </Select>
+                      </Field>
+                      <Field label="Color code">
+                        <Input
+                          value={row.colorCode}
+                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, colorCode: event.target.value.toUpperCase() } : item))}
+                          placeholder="BLU"
+                          required
+                          maxLength={8}
+                        />
+                      </Field>
+                    </div>
+                    {row.isNewColor && (
+                      <Field label="New color name">
+                        <Input
+                          value={row.colorName}
+                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, colorName: event.target.value } : item))}
+                          placeholder="Navy"
+                          required
+                        />
+                      </Field>
+                    )}
+                    <div className="grid grid-cols-3 gap-3">
+                      <Field label="Size">
+                        <Select
+                          value={row.size}
+                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, size: event.target.value } : item))}
+                        >
+                          {metadata.data?.sizes.map((size) => <option key={size.id} value={size.code}>{size.code}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Bundles">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={row.bundleQuantity}
+                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, bundleQuantity: Number(event.target.value) } : item))}
+                          required
+                        />
+                      </Field>
+                      <Field label="Pieces">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={row.piecesPerBundle}
+                          onChange={(event) => setVariantRows((rows) => rows.map((item) => item.key === row.key ? { ...item, piecesPerBundle: Number(event.target.value) } : item))}
+                          required
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Bundle quantity"><Input name="bundleQuantity" type="number" min={1} defaultValue={1} required /></Field>
-                <Field label="Pieces per bundle"><Input name="piecesPerBundle" type="number" min={1} defaultValue={25} required /></Field>
-              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Unit cost"><Input name="unitCost" type="number" min={0} step="0.01" required /></Field>
                 <Field label="Selling price"><Input name="sellingPrice" type="number" min={0} step="0.01" required /></Field>
@@ -639,7 +803,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   onChange={async (event) => setRegisterImages(await readImages(event.target.files))}
                 />
               </Field>
-              <Button disabled={registerMutation.isPending}>
+              <Button disabled={registerMutation.isPending || variantRows.length === 0}>
                 {registerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}
                 Register bundles
               </Button>
@@ -661,7 +825,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                 <div key={bundle.id} className="rounded-2xl border border-slate-100 p-4">
                   {bundle.qrImageUrl && <img src={bundle.qrImageUrl} alt="QR" className="h-24 w-24" />}
                   <p className="mt-2 font-bold">{bundle.productName}</p>
-                  <p className="text-sm text-slate-500">{bundle.color} · {bundle.size} · {bundle.piecesPerBundle} pcs</p>
+                  <p className="text-sm text-slate-500">{colorLabel(bundle.color, bundle.colorCode)} · {bundle.size} · {bundle.piecesPerBundle} pcs</p>
                   <p className="text-xs text-slate-500">{bundle.bundleNumber} · {bundle.qrCodeNumber}</p>
                 </div>
               ))}
@@ -724,21 +888,33 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   <div>
                     <p className="font-bold">{bundle.productName}</p>
                     <p className="text-sm text-slate-500">{bundle.style}</p>
-                    <p className="text-sm text-slate-500">{bundle.color} · {bundle.size}</p>
+                    <p className="text-sm text-slate-500">{colorLabel(bundle.color, bundle.colorCode)} · {bundle.size}</p>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={selectedBundleIds.has(bundle.id)}
-                    onChange={(event) => {
-                      event.stopPropagation();
-                      setSelectedBundleIds((current) => {
-                        const next = new Set(current);
-                        if (event.target.checked) next.add(bundle.id);
-                        else next.delete(bundle.id);
-                        return next;
-                      });
-                    }}
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedBundleIds.has(bundle.id)}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        setSelectedBundleIds((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(bundle.id);
+                          else next.delete(bundle.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteBundle(bundle);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-3 flex items-end justify-between gap-3">
                   <div className="text-sm">

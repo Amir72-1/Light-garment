@@ -1224,6 +1224,16 @@ export class PrismaRepository {
     return this.bundleService.reprintQr(bundleId, { userId, ipAddress });
   }
 
+  async createBundleColor(input: Parameters<BundleInventoryService["createColor"]>[0]) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.createColor(input);
+  }
+
+  async deleteInventoryBundle(bundleId: string, userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.deleteBundle(bundleId, { userId, ipAddress });
+  }
+
   async syncInventoryOffline(operations: Parameters<BundleInventoryService["syncOfflineOperations"]>[0], userId: string, ipAddress?: string) {
     await this.ensureBundleDefaults();
     return this.bundleService.syncOfflineOperations(operations, { userId, ipAddress });

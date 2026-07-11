@@ -779,4 +779,51 @@ describe("Bundle inventory API", () => {
     expect(synced.body[0].success).toBe(true);
     expect(synced.body[0].data).toHaveLength(1);
   });
+
+  it("registers multiple color/size variants with color codes and deletes bundles", async () => {
+    const { app, token } = await login();
+    const metadata = await request(app).get("/api/bundles/metadata").set("Authorization", `Bearer ${token}`).expect(200);
+    const warehouseId = metadata.body.warehouses[0].id as string;
+
+    const registered = await request(app)
+      .post("/api/bundles/register")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        productName: "Mixed Bundle Shirt",
+        style: "Relaxed",
+        variants: [
+          { color: "Blue", colorCode: "BLU", size: "L", bundleQuantity: 1, piecesPerBundle: 20 },
+          { color: "Red", colorCode: "RED", size: "M", bundleQuantity: 1, piecesPerBundle: 15 }
+        ],
+        unitCost: 100,
+        sellingPrice: 220,
+        warehouseId
+      })
+      .expect(201);
+
+    expect(registered.body).toHaveLength(2);
+    expect(registered.body[0].colorCode).toBe("BLU");
+    expect(registered.body[1].colorCode).toBe("RED");
+
+    const createdColor = await request(app)
+      .post("/api/bundles/colors")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Navy", code: "NVY" })
+      .expect(201);
+
+    expect(createdColor.body.code).toBe("NVY");
+
+    await request(app)
+      .delete(`/api/bundles/${registered.body[0].id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
+
+    const remaining = await request(app)
+      .get("/api/bundles")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(remaining.body.some((bundle: { id: string }) => bundle.id === registered.body[0].id)).toBe(false);
+    expect(remaining.body.some((bundle: { id: string }) => bundle.id === registered.body[1].id)).toBe(true);
+  });
 });

@@ -9,7 +9,9 @@ import type {
   OfflineSyncOperation,
   OfflineSyncResult,
   ProductCatalog,
+  CreateColorInput,
   RegisterBundleInput,
+  RegisterBundleVariantInput,
   SizeOption,
   SplitBundleInput,
   StockTransaction,
@@ -17,7 +19,7 @@ import type {
   StorageLocation,
   Warehouse
 } from "../shared/bundleInventory.js";
-import { assertMoveQuantity, buildReferenceNumber, encodeQrPayload, type QrBundlePayload } from "../shared/bundleInventory.js";
+import { assertMoveQuantity, buildReferenceNumber, encodeQrPayload, normalizeRegisterVariants, type QrBundlePayload } from "../shared/bundleInventory.js";
 
 type AuditContext = { userId: string; ipAddress?: string };
 
@@ -30,9 +32,9 @@ export class BundleInventoryDemo {
     { id: "fab_denim", name: "Denim" }
   ];
   private colors: ColorOption[] = [
-    { id: "col_blue", name: "Blue" },
-    { id: "col_black", name: "Black" },
-    { id: "col_white", name: "White" }
+    { id: "col_blue", name: "Blue", code: "BLU" },
+    { id: "col_black", name: "Black", code: "BLK" },
+    { id: "col_white", name: "White", code: "WHT" }
   ];
   private sizes: SizeOption[] = [
     { id: "size_s", code: "S", sortOrder: 1 },
@@ -68,7 +70,8 @@ export class BundleInventoryDemo {
     const q = query.trim().toLowerCase();
     if (!q) return this.listBundles();
     return this.bundles.filter((bundle) =>
-      [bundle.bundleNumber, bundle.qrCodeNumber, bundle.productName, bundle.color, bundle.size, bundle.qrPayload]
+      [bundle.bundleNumber, bundle.qrCodeNumber, bundle.productName, bundle.color, bundle.colorCode, bundle.size, bundle.qrPayload]
+        .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(q))
     );
   }
@@ -102,8 +105,27 @@ export class BundleInventoryDemo {
     return locationId ? this.locations.find((item) => item.id === locationId) : undefined;
   }
 
+  private ensureDemoColor(name: string, colorCode?: string) {
+    const trimmedName = name.trim();
+    const code = colorCode?.trim().toUpperCase() || trimmedName.slice(0, 3).toUpperCase();
+    const existing = this.colors.find((item) => item.name.toLowerCase() === trimmedName.toLowerCase());
+    if (existing) {
+      if (colorCode) existing.code = code;
+      return existing;
+    }
+    const codeTaken = this.colors.find((item) => item.code === code);
+    if (codeTaken) throw new Error(`Color code ${code} is already used by ${codeTaken.name}.`);
+    const created = { id: id("col"), name: trimmedName, code };
+    this.colors.push(created);
+    return created;
+  }
+
+  async createColor(input: CreateColorInput) {
+    return this.ensureDemoColor(input.name, input.code);
+  }
+
   async registerBundles(input: RegisterBundleInput, ctx: AuditContext): Promise<InventoryBundle[]> {
-    if (input.bundleQuantity < 1 || input.piecesPerBundle < 1) throw new Error("Invalid bundle registration.");
+    const variants = normalizeRegisterVariants(input);
     const warehouse = this.warehouseById(input.warehouseId);
     const location = this.locationById(input.storageLocationId);
     let catalog = this.catalogs.find((item) => item.name === input.productName && item.style === input.style);
@@ -120,69 +142,82 @@ export class BundleInventoryDemo {
       this.catalogs.unshift(catalog);
     }
     const created: InventoryBundle[] = [];
-    for (let index = 0; index < input.bundleQuantity; index += 1) {
-      const bundleId = id("bnd");
-      const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
-      const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-      const payload: QrBundlePayload = {
-        v: 1,
-        bundleId,
-        bundleNumber,
-        qrCodeNumber,
-        productCatalogId: catalog.id,
-        color: input.color,
-        size: input.size,
-        quantity: input.piecesPerBundle,
-        warehouseCode: warehouse.code
-      };
-      const qrPayload = encodeQrPayload(payload);
-      const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
-      const bundle: InventoryBundle = {
-        id: bundleId,
-        bundleNumber,
-        qrCodeNumber,
-        qrPayload,
-        qrImageUrl,
-        productCatalogId: catalog.id,
-        productName: input.productName,
-        style: input.style,
-        fabric: input.fabric,
-        color: input.color,
-        size: input.size,
-        piecesPerBundle: input.piecesPerBundle,
-        remainingPieces: input.piecesPerBundle,
-        unitCost: input.unitCost,
-        sellingPrice: input.sellingPrice,
-        warehouseId: warehouse.id,
-        warehouseName: warehouse.name,
-        warehouseCode: warehouse.code,
-        storageLocationId: location?.id,
-        storageLocationName: location?.name,
-        storageLocationCode: location?.code,
-        status: "Active",
-        version: 1,
-        createdAt: nowIso(),
-        updatedAt: nowIso()
-      };
-      this.bundles.unshift(bundle);
-      this.transactions.unshift({
-        id: id("txn"),
-        bundleId: bundle.id,
-        bundleNumber: bundle.bundleNumber,
-        productName: bundle.productName,
-        type: "Receiving",
-        quantity: input.piecesPerBundle,
-        toWarehouseName: warehouse.name,
-        toLocationName: location?.name,
-        userId: ctx.userId,
-        userName: this.users.get(ctx.userId) ?? "Demo user",
-        reason: "Bundle registration",
-        referenceNumber: buildReferenceNumber("RCV"),
-        createdAt: nowIso()
-      });
-      created.push(bundle);
+    for (const variantInput of variants) {
+      const color = this.ensureDemoColor(variantInput.color, variantInput.colorCode);
+      for (let index = 0; index < variantInput.bundleQuantity; index += 1) {
+        const bundleId = id("bnd");
+        const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
+        const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        const payload: QrBundlePayload = {
+          v: 1,
+          bundleId,
+          bundleNumber,
+          qrCodeNumber,
+          productCatalogId: catalog.id,
+          color: color.name,
+          colorCode: color.code,
+          size: variantInput.size,
+          quantity: variantInput.piecesPerBundle,
+          warehouseCode: warehouse.code
+        };
+        const qrPayload = encodeQrPayload(payload);
+        const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+        const bundle: InventoryBundle = {
+          id: bundleId,
+          bundleNumber,
+          qrCodeNumber,
+          qrPayload,
+          qrImageUrl,
+          productCatalogId: catalog.id,
+          productName: input.productName,
+          style: input.style,
+          fabric: input.fabric,
+          color: color.name,
+          colorCode: color.code,
+          size: variantInput.size,
+          piecesPerBundle: variantInput.piecesPerBundle,
+          remainingPieces: variantInput.piecesPerBundle,
+          unitCost: input.unitCost,
+          sellingPrice: input.sellingPrice,
+          warehouseId: warehouse.id,
+          warehouseName: warehouse.name,
+          warehouseCode: warehouse.code,
+          storageLocationId: location?.id,
+          storageLocationName: location?.name,
+          storageLocationCode: location?.code,
+          status: "Active",
+          version: 1,
+          createdAt: nowIso(),
+          updatedAt: nowIso()
+        };
+        this.bundles.unshift(bundle);
+        this.transactions.unshift({
+          id: id("txn"),
+          bundleId: bundle.id,
+          bundleNumber: bundle.bundleNumber,
+          productName: bundle.productName,
+          type: "Receiving",
+          quantity: variantInput.piecesPerBundle,
+          toWarehouseName: warehouse.name,
+          toLocationName: location?.name,
+          userId: ctx.userId,
+          userName: this.users.get(ctx.userId) ?? "Demo user",
+          reason: "Bundle registration",
+          referenceNumber: buildReferenceNumber("RCV"),
+          createdAt: nowIso()
+        });
+        created.push(bundle);
+      }
     }
     return created;
+  }
+
+  async deleteBundle(bundleId: string) {
+    const index = this.bundles.findIndex((item) => item.id === bundleId);
+    if (index < 0) throw new Error("Bundle not found.");
+    const activeChildren = this.bundles.filter((item) => item.parentBundleId === bundleId && item.remainingPieces > 0);
+    if (activeChildren.length > 0) throw new Error("Cannot delete bundle while active child bundles still hold inventory.");
+    this.bundles.splice(index, 1);
   }
 
   private async refreshBundleQr(bundle: InventoryBundle, warehouseCode = bundle.warehouseCode) {
@@ -193,6 +228,7 @@ export class BundleInventoryDemo {
       qrCodeNumber: bundle.qrCodeNumber,
       productCatalogId: bundle.productCatalogId,
       color: bundle.color,
+      colorCode: bundle.colorCode,
       size: bundle.size,
       quantity: bundle.remainingPieces,
       warehouseCode
@@ -232,6 +268,7 @@ export class BundleInventoryDemo {
         qrCodeNumber,
         productCatalogId: source.productCatalogId,
         color: source.color,
+        colorCode: source.colorCode,
         size: source.size,
         quantity: input.quantity,
         warehouseCode: toWarehouse.code

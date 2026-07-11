@@ -232,23 +232,43 @@ const stockTransactionTypeSchema = z.enum([
   "Split"
 ]);
 
+const bundleVariantSchema = z.object({
+  color: z.string().min(1),
+  colorId: z.string().optional(),
+  colorCode: z.string().min(2).max(8).optional(),
+  size: z.string().min(1),
+  sizeId: z.string().optional(),
+  bundleQuantity: z.coerce.number().int().min(1),
+  piecesPerBundle: z.coerce.number().int().min(1)
+});
+
 const registerBundleSchema = z.object({
   productName: z.string().min(2),
   style: z.string().min(1),
   fabric: z.string().optional(),
   fabricId: z.string().optional(),
-  color: z.string().min(1),
+  color: z.string().optional(),
   colorId: z.string().optional(),
-  size: z.string().min(1),
+  colorCode: z.string().min(2).max(8).optional(),
+  size: z.string().optional(),
   sizeId: z.string().optional(),
-  bundleQuantity: z.coerce.number().int().min(1),
-  piecesPerBundle: z.coerce.number().int().min(1),
+  bundleQuantity: z.coerce.number().int().min(1).optional(),
+  piecesPerBundle: z.coerce.number().int().min(1).optional(),
+  variants: z.array(bundleVariantSchema).min(1).optional(),
   unitCost: z.coerce.number().nonnegative(),
   sellingPrice: z.coerce.number().nonnegative(),
   warehouseId: z.string(),
   storageLocationId: z.string().optional(),
   images: z.array(z.string()).optional(),
   skuPrefix: z.string().optional()
+}).refine((value) => Boolean(value.variants?.length || (value.color && value.size && value.bundleQuantity && value.piecesPerBundle)), {
+  message: "Provide at least one color/size variant"
+});
+
+const createColorSchema = z.object({
+  name: z.string().min(1),
+  code: z.string().min(2).max(8),
+  hexCode: z.string().optional()
 });
 
 const scanBundleSchema = z.object({
@@ -642,6 +662,15 @@ export async function createApp() {
     response.status(201).json(bundles);
   }));
 
+  app.post("/api/bundles/colors", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    response.status(201).json(await repository.createBundleColor(createColorSchema.parse(request.body)));
+  }));
+
+  app.delete("/api/bundles/:id", auth, allow("Owner", "Manager"), asyncRoute(async (request, response) => {
+    await repository.deleteInventoryBundle(String(request.params.id), request.user!.id, clientIp(request));
+    response.status(204).end();
+  }));
+
   app.post("/api/bundles/scan", auth, allow("Owner", "Manager", "Storekeeper", "Salesperson"), asyncRoute(async (request, response) => {
     const parsed = scanBundleSchema.parse(request.body);
     const result = await repository.scanInventoryBundle(parsed.code, request.user!.id, clientIp(request));
@@ -829,6 +858,7 @@ export async function createApp() {
         || error.message.includes("Unique constraint")
         || error.message.includes("updated elsewhere")
         || error.message.includes("Cannot move")
+        || error.message.includes("Cannot delete")
         || error.message.includes("not found");
       response.status(conflict ? 409 : 500).json({ message: error.message });
       return;

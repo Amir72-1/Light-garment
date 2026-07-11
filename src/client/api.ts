@@ -28,11 +28,13 @@ import type {
   ColorOption,
   FabricType,
   InventoryBundle,
+  CreateColorInput,
   MoveBundleInput,
   OfflineSyncOperation,
   OfflineSyncResult,
   ProductCatalog,
   RegisterBundleInput,
+  RegisterBundleVariantInput,
   SizeOption,
   SplitBundleInput,
   StockTransaction,
@@ -101,6 +103,10 @@ export const api = {
     request<InventoryBundle[]>(`/api/bundles/search?q=${encodeURIComponent(query)}`, {}, token),
   registerBundles: (token: string, body: RegisterBundleInput) =>
     request<InventoryBundle[]>("/api/bundles/register", { method: "POST", body: JSON.stringify(body) }, token),
+  createBundleColor: (token: string, body: CreateColorInput) =>
+    request<ColorOption>("/api/bundles/colors", { method: "POST", body: JSON.stringify(body) }, token),
+  deleteBundle: (token: string, bundleId: string) =>
+    request<void>(`/api/bundles/${encodeURIComponent(bundleId)}`, { method: "DELETE" }, token),
   scanBundle: (token: string, code: string) =>
     request<BundleScanResult>("/api/bundles/scan", { method: "POST", body: JSON.stringify({ code }) }, token),
   moveBundle: (token: string, body: MoveBundleInput) =>

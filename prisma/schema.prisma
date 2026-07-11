@@ -409,6 +409,7 @@ model FabricType {
 model ColorOption {
   id        String           @id @default(cuid())
   name      String           @unique
+  code      String?          @unique
   hexCode   String?
   variants  ProductVariant[]
   createdAt DateTime         @default(now())
@@ -495,6 +496,7 @@ model InventoryBundle {
   style             String
   fabric            String?
   color             String
+  colorCode         String?
   size              String
   piecesPerBundle   Int
   remainingPieces   Int

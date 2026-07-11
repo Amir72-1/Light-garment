@@ -17,6 +17,7 @@ export interface QrBundlePayload {
   qrCodeNumber: string;
   productCatalogId: string;
   color: string;
+  colorCode?: string;
   size: string;
   quantity: number;
   warehouseCode: string;
@@ -30,6 +31,7 @@ export interface FabricType {
 export interface ColorOption {
   id: string;
   name: string;
+  code?: string;
   hexCode?: string;
 }
 
@@ -89,6 +91,7 @@ export interface InventoryBundle {
   style: string;
   fabric?: string;
   color: string;
+  colorCode?: string;
   size: string;
   piecesPerBundle: number;
   remainingPieces: number;
@@ -112,6 +115,7 @@ export interface BundleScanResult {
   productName: string;
   style: string;
   color: string;
+  colorCode?: string;
   size: string;
   bundleNumber: string;
   remainingPieces: number;
@@ -141,23 +145,41 @@ export interface StockTransaction {
   createdAt: string;
 }
 
+export interface RegisterBundleVariantInput {
+  color: string;
+  colorId?: string;
+  colorCode?: string;
+  size: string;
+  sizeId?: string;
+  bundleQuantity: number;
+  piecesPerBundle: number;
+}
+
 export interface RegisterBundleInput {
   productName: string;
   style: string;
   fabric?: string;
   fabricId?: string;
-  color: string;
+  color?: string;
   colorId?: string;
-  size: string;
+  colorCode?: string;
+  size?: string;
   sizeId?: string;
-  bundleQuantity: number;
-  piecesPerBundle: number;
+  bundleQuantity?: number;
+  piecesPerBundle?: number;
+  variants?: RegisterBundleVariantInput[];
   unitCost: number;
   sellingPrice: number;
   warehouseId: string;
   storageLocationId?: string;
   images?: string[];
   skuPrefix?: string;
+}
+
+export interface CreateColorInput {
+  name: string;
+  code: string;
+  hexCode?: string;
 }
 
 export interface MoveBundleInput {
@@ -193,6 +215,22 @@ export interface OfflineSyncResult {
   success: boolean;
   error?: string;
   data?: unknown;
+}
+
+export function normalizeRegisterVariants(input: RegisterBundleInput): RegisterBundleVariantInput[] {
+  if (input.variants?.length) return input.variants;
+  if (!input.color || !input.size || !input.bundleQuantity || !input.piecesPerBundle) {
+    throw new Error("At least one color and size variant is required.");
+  }
+  return [{
+    color: input.color,
+    colorId: input.colorId,
+    colorCode: input.colorCode,
+    size: input.size,
+    sizeId: input.sizeId,
+    bundleQuantity: input.bundleQuantity,
+    piecesPerBundle: input.piecesPerBundle
+  }];
 }
 
 export function encodeQrPayload(payload: QrBundlePayload) {
