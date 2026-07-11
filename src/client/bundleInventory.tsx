@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Html5QrcodeScanner } from "html5-qrcode";
 import { jsPDF } from "jspdf";
 import {
   AlertCircle,
@@ -22,6 +21,7 @@ import {
   WifiOff
 } from "lucide-react";
 import { api } from "./api";
+import { BundleQrScanner, shouldAutoStartBundleScanner, type BundleQrScannerHandle } from "./bundleQrScanner";
 import { Badge, Button, Card, Field, Input, Select, Textarea } from "./components/ui";
 import {
   clearFailedOperations,
@@ -129,12 +129,13 @@ function printBundleLabelWindow(bundles: InventoryBundle[]) {
 export function BundleInventoryPanel({ token }: { token: string }) {
   const queryClient = useQueryClient();
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const scannerRef = useRef<BundleQrScannerHandle>(null);
   const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("scan");
   const [search, setSearch] = useState("");
   const [scanCode, setScanCode] = useState("");
   const [scanResult, setScanResult] = useState<BundleScanResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<InventoryBundle | null>(null);
   const [moveQty, setMoveQty] = useState(1);
   const [moveWarehouseId, setMoveWarehouseId] = useState("");
@@ -421,20 +422,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     [scanMutation]
   );
 
+  const openScanTab = useCallback(() => {
+    setTab("scan");
+    if (shouldAutoStartBundleScanner()) {
+      window.requestAnimationFrame(() => {
+        void scannerRef.current?.start();
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    if (!cameraOpen) return;
-    const scanner = new Html5QrcodeScanner("bundle-qr-reader", { fps: 12, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true }, false);
-    scanner.render(
-      (decoded) => {
-        setCameraOpen(false);
-        handleScanSubmit(decoded);
-      },
-      () => undefined
-    );
-    return () => {
-      scanner.clear().catch(() => undefined);
-    };
-  }, [cameraOpen, handleScanSubmit]);
+    if (tab !== "scan" || !shouldAutoStartBundleScanner()) return;
+    const timer = window.setTimeout(() => {
+      void scannerRef.current?.start();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [tab]);
 
   const pendingCount = queued.filter((item) => item.status === "pending").length;
   const failedCount = queued.filter((item) => item.status === "failed").length;
@@ -484,7 +487,18 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
       <div className="flex flex-wrap gap-2">
         {(["scan", "register", "bundles", "history"] as const).map((key) => (
-          <Button key={key} variant={tab === key ? "primary" : "secondary"} onClick={() => setTab(key)}>
+          <Button
+            key={key}
+            variant={tab === key ? "primary" : "secondary"}
+            onClick={() => {
+              if (key === "scan") {
+                openScanTab();
+                return;
+              }
+              void scannerRef.current?.stop();
+              setTab(key);
+            }}
+          >
             {key === "scan" && <ScanLine className="h-4 w-4" />}
             {key === "register" && <PackagePlus className="h-4 w-4" />}
             {key === "bundles" && <QrCode className="h-4 w-4" />}
@@ -500,34 +514,64 @@ export function BundleInventoryPanel({ token }: { token: string }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold">QR scanner</h3>
-                <p className="text-sm text-slate-500">USB scanner, webcam, or phone camera. Lookup should be under one second.</p>
+                <p className="text-sm text-slate-500">Open the camera, point at a bundle QR, and the lookup runs automatically.</p>
               </div>
-              <Button variant="secondary" onClick={() => setCameraOpen((value) => !value)}>
+              <Button variant="secondary" onClick={() => void scannerRef.current?.start()}>
                 <Camera className="h-4 w-4" />
-                {cameraOpen ? "Close camera" : "Open camera"}
+                Open camera
               </Button>
             </div>
-            {cameraOpen && <div id="bundle-qr-reader" className="mt-4 overflow-hidden rounded-2xl" />}
-            <form
-              className="mt-4 flex flex-col gap-3 sm:flex-row"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleScanSubmit(scanCode);
-              }}
-            >
-              <Input
-                ref={scanInputRef}
-                value={scanCode}
-                onChange={(event) => setScanCode(event.target.value)}
-                placeholder="Scan or paste QR code / bundle number"
-                className="text-lg"
-                autoFocus
+
+            <div className="mt-4">
+              <BundleQrScanner
+                ref={scannerRef}
+                paused={scanMutation.isPending}
+                onScan={handleScanSubmit}
+                onError={(message) => {
+                  setScanError(message);
+                  notify("error", message);
+                }}
               />
-              <Button type="submit" disabled={scanMutation.isPending}>
-                {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                Scan
-              </Button>
-            </form>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                className="text-sm font-semibold text-emerald-700"
+                onClick={() => setManualEntryOpen((value) => !value)}
+              >
+                {manualEntryOpen ? "Hide manual entry" : "Enter code manually"}
+              </button>
+            </div>
+
+            {manualEntryOpen && (
+              <form
+                className="mt-3 flex flex-col gap-3 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleScanSubmit(scanCode);
+                }}
+              >
+                <Input
+                  ref={scanInputRef}
+                  value={scanCode}
+                  onChange={(event) => setScanCode(event.target.value)}
+                  placeholder="Paste QR payload or bundle number"
+                  className="text-lg"
+                />
+                <Button type="submit" disabled={scanMutation.isPending}>
+                  {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                  Lookup
+                </Button>
+              </form>
+            )}
+
+            {scanMutation.isPending && (
+              <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Looking up bundle...
+              </p>
+            )}
             {scanError && <p className="mt-3 text-sm text-rose-600">{scanError}</p>}
             {scanResult && (
               <div className="mt-6 grid gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[120px_1fr]">
