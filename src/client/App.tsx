@@ -31,7 +31,7 @@ import {
   sessionExpiryMessage,
   touchSessionActivity
 } from "./session";
-import type { AttendanceRecord, AttendanceSettings, Department, Employee, EmploymentType, Gender, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, Sale, UserSession } from "../shared/types";
+import type { AttendanceRecord, AttendanceSettings, Department, Employee, EmploymentType, Gender, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, SalaryHistoryEntry, Sale, UserSession, YearlyBreakEligibility } from "../shared/types";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
 type ThemeMode = "light" | "dark" | "system";
@@ -393,6 +393,9 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
     queryClient.invalidateQueries({ queryKey: ["archived-employees"] });
     queryClient.invalidateQueries({ queryKey: ["attendance"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["yearly-break-eligibility"] });
+    queryClient.invalidateQueries({ queryKey: ["salary-history"] });
+    queryClient.invalidateQueries({ queryKey: ["yearly-breaks"] });
   };
   const [employeeFormKey, setEmployeeFormKey] = useState(0);
   const createEmployee = useMutation({
@@ -503,6 +506,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                 </Card>
               ))}
             </div>
+            <YearlyBreakPanel token={token} isOwner={isOwner} />
             <EmployeeForm key={employeeFormKey} token={token} pending={createEmployee.isPending} error={createEmployee.error?.message} onSubmit={(form) => createEmployee.mutate(form)} />
             <Card>
               <h3 className="text-lg font-bold">Daily attendance log</h3>
@@ -546,8 +550,13 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
       {selected && (
         <EmployeeProfileDialog
           employee={selected}
+          token={token}
           isOwner={isOwner}
           onClose={() => setSelected(null)}
+          onEmployeeUpdated={(employee) => {
+            setSelected(employee);
+            invalidate();
+          }}
           onEdit={isOwner && !selected.archivedAt ? () => { setEditingEmployee(selected); setSelected(null); } : undefined}
           onPermanentDelete={confirmPermanentDelete}
           permanentDeletePending={permanentDeleteEmployee.isPending}
@@ -581,24 +590,126 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
   );
 }
 
+function YearlyBreakPanel({ token, isOwner }: { token: string; isOwner: boolean }) {
+  const queryClient = useQueryClient();
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const eligibility = useQuery({ queryKey: ["yearly-break-eligibility", year], queryFn: () => api.yearlyBreakEligibility(token, year) });
+  const registerBreak = useMutation({
+    mutationFn: ({ employeeId }: { employeeId: string }) => api.registerYearlyBreak(token, employeeId, { year, startDate, endDate, notes: notes || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["yearly-break-eligibility"] });
+      queryClient.invalidateQueries({ queryKey: ["yearly-breaks"] });
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      setRegisteringId(null);
+      setStartDate("");
+      setEndDate("");
+      setNotes("");
+    }
+  });
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 className="text-lg font-bold">Yearly break eligibility</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Shows which active employees qualify for annual leave and whether a break is already registered.</p>
+        </div>
+        <Field label="Year">
+          <Input type="number" min={2000} max={2100} value={year} onChange={(event) => setYear(Number(event.target.value))} className="max-w-[140px]" />
+        </Field>
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead className="text-slate-500">
+            <tr>
+              <th className="py-2">Employee</th>
+              <th>Hire date</th>
+              <th>Months employed</th>
+              <th>Entitlement</th>
+              <th>Eligible</th>
+              <th>Status</th>
+              {isOwner && <th>Action</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {eligibility.data?.map((row) => (
+              <tr key={row.employee.id} className="border-t dark:border-slate-800">
+                <td className="py-3 font-semibold">{row.employee.fullName}<p className="text-xs text-slate-500">{row.employee.employeeCode}</p></td>
+                <td>{row.employee.hireDate}</td>
+                <td>{row.monthsEmployed}</td>
+                <td>{row.entitlementDays} days</td>
+                <td><Badge className={row.eligible ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}>{row.eligible ? "Yes" : "No"}</Badge></td>
+                <td>{row.yearlyBreak ? `${row.yearlyBreak.status} (${row.yearlyBreak.startDate} to ${row.yearlyBreak.endDate})` : row.reason || "Not registered"}</td>
+                {isOwner && (
+                  <td>
+                    {row.eligible ? (
+                      registeringId === row.employee.id ? (
+                        <form className="grid min-w-[320px] gap-2" onSubmit={(event) => { event.preventDefault(); registerBreak.mutate({ employeeId: row.employee.id }); }}>
+                          <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required />
+                          <Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} required />
+                          <Input placeholder="Notes (optional)" value={notes} onChange={(event) => setNotes(event.target.value)} />
+                          <div className="action-row">
+                            <Button type="submit" disabled={registerBreak.isPending}>{registerBreak.isPending ? "Saving..." : "Save break"}</Button>
+                            <Button type="button" variant="secondary" onClick={() => setRegisteringId(null)}>Cancel</Button>
+                          </div>
+                        </form>
+                      ) : (
+                        <Button variant="secondary" onClick={() => setRegisteringId(row.employee.id)}>Register break</Button>
+                      )
+                    ) : (
+                      <span className="text-xs text-slate-500">—</span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 function EmployeeProfileDialog({
   employee,
+  token,
   isOwner,
   onClose,
   onEdit,
+  onEmployeeUpdated,
   onPermanentDelete,
   permanentDeletePending = false
 }: {
   employee: Employee;
+  token: string;
   isOwner: boolean;
   onClose: () => void;
   onEdit?: () => void;
+  onEmployeeUpdated: (employee: Employee) => void;
   onPermanentDelete: (employee: Employee) => void;
   permanentDeletePending?: boolean;
 }) {
+  const queryClient = useQueryClient();
   const [showPhoto, setShowPhoto] = useState(false);
   const [showIdImages, setShowIdImages] = useState(false);
   const [idPreview, setIdPreview] = useState<{ url: string; label: string } | null>(null);
+  const [newSalary, setNewSalary] = useState("");
+  const [salaryReason, setSalaryReason] = useState("");
+  const salaryHistory = useQuery({ queryKey: ["salary-history", employee.id], queryFn: () => api.employeeSalaryHistory(token, employee.id) });
+  const yearlyBreaks = useQuery({ queryKey: ["yearly-breaks", employee.id], queryFn: () => api.employeeYearlyBreaks(token, employee.id) });
+  const increaseSalary = useMutation({
+    mutationFn: () => api.increaseEmployeeSalary(token, employee.id, { newSalary: Number(newSalary), reason: salaryReason || undefined }),
+    onSuccess: (result) => {
+      onEmployeeUpdated(result.employee);
+      queryClient.invalidateQueries({ queryKey: ["salary-history", employee.id] });
+      setNewSalary("");
+      setSalaryReason("");
+    }
+  });
 
   return (
     <>
@@ -677,6 +788,54 @@ function EmployeeProfileDialog({
               )}
             </div>
           )}
+          {isOwner && !employee.archivedAt && (
+            <div className="mt-4 border-t pt-4 dark:border-slate-800">
+              <h4 className="font-bold">Increase salary</h4>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Current salary: {currency(employee.salary)}. Increases are saved to salary history.</p>
+              <form className="mt-3 grid gap-3" onSubmit={(event) => { event.preventDefault(); increaseSalary.mutate(); }}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="New salary (must be higher)">
+                    <Input type="number" min={employee.salary + 1} value={newSalary} onChange={(event) => setNewSalary(event.target.value)} required />
+                  </Field>
+                  <Field label="Reason (optional)">
+                    <Input value={salaryReason} onChange={(event) => setSalaryReason(event.target.value)} placeholder="Annual raise, promotion..." />
+                  </Field>
+                </div>
+                {increaseSalary.error && <p className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{increaseSalary.error.message}</p>}
+                <Button disabled={increaseSalary.isPending}>{increaseSalary.isPending ? "Saving..." : "Increase salary"}</Button>
+              </form>
+            </div>
+          )}
+          <div className="mt-4 border-t pt-4 dark:border-slate-800">
+            <h4 className="font-bold">Salary history</h4>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="text-slate-500"><tr><th className="py-2">Effective date</th><th>Previous</th><th>New</th><th>Reason</th><th>Changed by</th></tr></thead>
+                <tbody>
+                  {salaryHistory.data?.length ? salaryHistory.data.map((entry: SalaryHistoryEntry) => (
+                    <tr key={entry.id} className="border-t dark:border-slate-800">
+                      <td className="py-2">{entry.effectiveDate}</td>
+                      <td>{currency(entry.previousSalary)}</td>
+                      <td className="font-semibold text-emerald-700 dark:text-emerald-300">{currency(entry.newSalary)}</td>
+                      <td>{entry.reason || "—"}</td>
+                      <td>{entry.changedByName || "—"}</td>
+                    </tr>
+                  )) : <tr><td colSpan={5} className="py-3 text-slate-500">No salary history yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="mt-4 border-t pt-4 dark:border-slate-800">
+            <h4 className="font-bold">Yearly breaks</h4>
+            <div className="mt-3 grid gap-2">
+              {yearlyBreaks.data?.length ? yearlyBreaks.data.map((item) => (
+                <div key={item.id} className="rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
+                  <p className="font-semibold">{item.year}: {item.startDate} to {item.endDate} ({item.days} days)</p>
+                  <p className="text-slate-500">{item.status}{item.notes ? ` · ${item.notes}` : ""}</p>
+                </div>
+              )) : <p className="text-sm text-slate-500">No yearly break registered yet.</p>}
+            </div>
+          </div>
           {isOwner && onEdit && (
             <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
               <Button variant="secondary" onClick={onEdit}>Edit employee</Button>
@@ -1112,6 +1271,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
                         <option>Present</option>
                         <option>Absent</option>
                         <option>Late</option>
+                        <option>On leave</option>
                       </Select>
                     </td>
                   )}
@@ -1165,7 +1325,7 @@ function Attendance({ token, role }: { token: string; role: RoleName }) {
 }
 
 function AttendanceBadge({ status }: { status: AttendanceRecord["status"] }) {
-  return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800")}>{status}</Badge>;
+  return <Badge className={cn(status === "Present" && "bg-emerald-100 text-emerald-800", status === "Absent" && "bg-rose-100 text-rose-800", status === "Late" && "bg-amber-100 text-amber-800", status === "On leave" && "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200")}>{status}</Badge>;
 }
 
 function HoursWithOvertime({ record }: { record: AttendanceRecord }) {
@@ -1288,7 +1448,7 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
       {role === "Owner" && settings.data && (
         <Card>
           <h3 className="text-lg font-bold">Payroll settings</h3>
-          <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); saveSettings.mutate({ standardHoursPerDay: Number(form.standardHoursPerDay), workingDaysPerMonth: Number(form.workingDaysPerMonth), gracePeriodMinutes: Number(form.gracePeriodMinutes), overtimeRatePerHour: Number(form.overtimeRatePerHour), latePenaltyEnabled: form.latePenaltyEnabled === "on", latePenaltyAmount: Number(form.latePenaltyAmount), absenceDeductionEnabled: form.absenceDeductionEnabled === "on", taxPercentage: Number(form.taxPercentage), defaultAllowance: Number(form.defaultAllowance), defaultBonus: Number(form.defaultBonus) }); }}>
+          <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); const form = Object.fromEntries(new FormData(event.currentTarget)); saveSettings.mutate({ standardHoursPerDay: Number(form.standardHoursPerDay), workingDaysPerMonth: Number(form.workingDaysPerMonth), gracePeriodMinutes: Number(form.gracePeriodMinutes), overtimeRatePerHour: Number(form.overtimeRatePerHour), latePenaltyEnabled: form.latePenaltyEnabled === "on", latePenaltyAmount: Number(form.latePenaltyAmount), absenceDeductionEnabled: form.absenceDeductionEnabled === "on", taxPercentage: Number(form.taxPercentage), defaultAllowance: Number(form.defaultAllowance), defaultBonus: Number(form.defaultBonus), yearlyBreakEntitlementDays: Number(form.yearlyBreakEntitlementDays), yearlyBreakMinMonthsEmployed: Number(form.yearlyBreakMinMonthsEmployed) }); }}>
             <Field label="Standard hours/day"><Input name="standardHoursPerDay" type="number" step="0.01" defaultValue={settings.data.standardHoursPerDay} /></Field>
             <Field label="Working days/month"><Input name="workingDaysPerMonth" type="number" defaultValue={settings.data.workingDaysPerMonth} /></Field>
             <Field label="Grace minutes"><Input name="gracePeriodMinutes" type="number" defaultValue={settings.data.gracePeriodMinutes} /></Field>
@@ -1297,6 +1457,8 @@ function Payroll({ token, role }: { token: string; role: RoleName }) {
             <Field label="Tax %"><Input name="taxPercentage" type="number" step="0.01" defaultValue={settings.data.taxPercentage || 0} /></Field>
             <Field label="Default allowance"><Input name="defaultAllowance" type="number" step="0.01" defaultValue={settings.data.defaultAllowance} /></Field>
             <Field label="Default bonus"><Input name="defaultBonus" type="number" step="0.01" defaultValue={settings.data.defaultBonus} /></Field>
+            <Field label="Yearly break days"><Input name="yearlyBreakEntitlementDays" type="number" min={1} defaultValue={settings.data.yearlyBreakEntitlementDays ?? 14} /></Field>
+            <Field label="Min months for yearly break"><Input name="yearlyBreakMinMonthsEmployed" type="number" min={1} defaultValue={settings.data.yearlyBreakMinMonthsEmployed ?? 12} /></Field>
             <div className="grid gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
               <label className="flex items-center gap-2"><input name="latePenaltyEnabled" type="checkbox" defaultChecked={settings.data.latePenaltyEnabled} /> Late penalty enabled</label>
               <label className="flex items-center gap-2"><input name="absenceDeductionEnabled" type="checkbox" defaultChecked={settings.data.absenceDeductionEnabled} /> Absence deduction enabled</label>

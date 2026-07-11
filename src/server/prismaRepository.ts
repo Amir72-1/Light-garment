@@ -23,8 +23,12 @@ import type {
   RawMaterial,
   RawMaterialMovement,
   RoleName,
-  Sale
+  Sale,
+  SalaryHistoryEntry,
+  YearlyBreak,
+  YearlyBreakEligibility
 } from "../shared/types.js";
+import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
@@ -61,8 +65,10 @@ const stageStatusFromDb: Record<string, ProductionStage["status"]> = { PENDING: 
 const stageStatusToDb: Record<ProductionStage["status"], string> = { Pending: "PENDING", "In progress": "IN_PROGRESS", Completed: "COMPLETED", Blocked: "BLOCKED" };
 const rawCategoryFromDb: Record<string, RawMaterial["category"]> = { FABRIC: "Fabric", THREAD: "Thread", BUTTONS: "Buttons", LABELS: "Labels", PACKAGING: "Packaging" };
 const rawCategoryToDb: Record<RawMaterial["category"], string> = { Fabric: "FABRIC", Thread: "THREAD", Buttons: "BUTTONS", Labels: "LABELS", Packaging: "PACKAGING" };
-const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late" };
-const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE" };
+const attendanceFromDb: Record<string, AttendanceRecord["status"]> = { PRESENT: "Present", ABSENT: "Absent", LATE: "Late", ON_LEAVE: "On leave" };
+const attendanceToDb: Record<AttendanceRecord["status"], string> = { Present: "PRESENT", Absent: "ABSENT", Late: "LATE", "On leave": "ON_LEAVE" };
+const yearlyBreakStatusFromDb: Record<string, YearlyBreak["status"]> = { SCHEDULED: "Scheduled", TAKEN: "Taken", CANCELLED: "Cancelled" };
+const yearlyBreakStatusToDb: Record<YearlyBreak["status"], string> = { Scheduled: "SCHEDULED", Taken: "TAKEN", Cancelled: "CANCELLED" };
 const defaultAttendanceSettings: AttendanceSettings = {
   startTime: process.env.ATTENDANCE_START_TIME || "09:00",
   endTime: process.env.ATTENDANCE_END_TIME || "17:00"
@@ -94,6 +100,35 @@ function employeeFromDb(row: any): Employee {
     hireDate: isoDate(row.hireDate),
     status: statusFromDb[row.status as "ACTIVE" | "INACTIVE"],
     archivedAt: row.archivedAt?.toISOString()
+  };
+}
+
+function salaryHistoryFromDb(row: any): SalaryHistoryEntry {
+  return {
+    id: row.id,
+    employeeId: row.employeeId,
+    previousSalary: Number(row.previousSalary),
+    newSalary: Number(row.newSalary),
+    effectiveDate: isoDate(row.effectiveDate),
+    reason: row.reason ?? undefined,
+    changedByName: row.changedBy?.name,
+    createdAt: row.createdAt.toISOString()
+  };
+}
+
+function yearlyBreakFromDb(row: any): YearlyBreak {
+  return {
+    id: row.id,
+    employeeId: row.employeeId,
+    year: row.year,
+    startDate: isoDate(row.startDate),
+    endDate: isoDate(row.endDate),
+    days: row.days,
+    status: yearlyBreakStatusFromDb[row.status],
+    notes: row.notes ?? undefined,
+    registeredByName: row.registeredBy?.name,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
   };
 }
 
@@ -366,10 +401,34 @@ export class PrismaRepository {
         status: statusToDb[input.status] as any
       }
     });
+    await this.prisma.salaryHistory.create({
+      data: {
+        employeeId: row.id,
+        previousSalary: 0,
+        newSalary: input.salary,
+        effectiveDate: new Date(input.hireDate),
+        reason: "Initial registration"
+      }
+    });
     return employeeFromDb(row);
   }
 
-  async updateEmployee(employeeId: string, input: Partial<EmployeeInput>) {
+  async updateEmployee(employeeId: string, input: Partial<EmployeeInput>, changedByUserId?: string) {
+    const existing = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!existing) return null;
+    if (input.salary !== undefined && Number(existing.salary) !== input.salary) {
+      await this.prisma.salaryHistory.create({
+        data: {
+          employeeId,
+          previousSalary: existing.salary,
+          newSalary: input.salary,
+          effectiveDate: new Date(),
+          reason: "Updated from employee record",
+          changedByUserId: changedByUserId ?? null
+        }
+      });
+      await this.recalculateExistingPayrollForEmployee(employeeId, todayKey());
+    }
     const row = await this.prisma.employee.update({
       where: { id: employeeId },
       data: {
@@ -513,10 +572,10 @@ export class PrismaRepository {
       where: { employeeId_date: { employeeId: input.employeeId, date } },
       update: {
         status: attendanceToDb[input.status] as any,
-        checkInTime: input.status === "Absent" ? null : input.checkInTime,
-        checkOutTime: input.status === "Absent" ? null : input.checkOutTime,
-        totalHours: input.status === "Absent" ? null : totalHours(input.checkInTime, input.checkOutTime),
-        overtimeHours: input.status === "Absent" ? null : overtimeHours(input.checkOutTime, date, this.attendanceConfig)
+        checkInTime: input.status === "Absent" || input.status === "On leave" ? null : input.checkInTime,
+        checkOutTime: input.status === "Absent" || input.status === "On leave" ? null : input.checkOutTime,
+        totalHours: input.status === "Absent" || input.status === "On leave" ? null : totalHours(input.checkInTime, input.checkOutTime),
+        overtimeHours: input.status === "Absent" || input.status === "On leave" ? null : overtimeHours(input.checkOutTime, date, this.attendanceConfig)
       },
       create: {
         employeeId: input.employeeId,
@@ -892,5 +951,114 @@ export class PrismaRepository {
 
   async settings() {
     return { name: "Light Garment Manufacturing PLC", currency: "ETB", address: "Addis Ababa, Ethiopia", theme: "Light enterprise", backupSchedule: "Daily at 02:00" };
+  }
+
+  async listSalaryHistory(employeeId: string) {
+    const rows = await this.prisma.salaryHistory.findMany({
+      where: { employeeId },
+      include: { changedBy: true },
+      orderBy: { effectiveDate: "desc" }
+    });
+    return rows.map(salaryHistoryFromDb);
+  }
+
+  async increaseEmployeeSalary(employeeId: string, input: { newSalary: number; effectiveDate?: string; reason?: string }, changedByUserId?: string) {
+    const existing = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!existing) return null;
+    if (input.newSalary <= Number(existing.salary)) {
+      throw new Error("New salary must be higher than the current salary.");
+    }
+    const effectiveDate = input.effectiveDate ? new Date(input.effectiveDate) : new Date();
+    const history = await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.salaryHistory.create({
+        data: {
+          employeeId,
+          previousSalary: existing.salary,
+          newSalary: input.newSalary,
+          effectiveDate,
+          reason: input.reason || "Salary increase",
+          changedByUserId: changedByUserId ?? null
+        },
+        include: { changedBy: true }
+      });
+      await tx.employee.update({ where: { id: employeeId }, data: { salary: input.newSalary } });
+      return entry;
+    });
+    await this.recalculateExistingPayrollForEmployee(employeeId, effectiveDate.toISOString().slice(0, 10));
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    return { employee: employee ? employeeFromDb(employee) : null, history: salaryHistoryFromDb(history) };
+  }
+
+  async listYearlyBreakEligibility(year: number) {
+    const [employees, breaks] = await Promise.all([
+      this.prisma.employee.findMany({ where: { archivedAt: null }, orderBy: { fullName: "asc" } }),
+      this.prisma.yearlyBreak.findMany({ where: { year } })
+    ]);
+    const settings = this.payrollSettingsConfig;
+    return employees.map((row) => {
+      const employee = employeeFromDb(row);
+      const existingBreak = breaks.find((item) => item.employeeId === employee.id);
+      return yearlyBreakEligibility({
+        employee,
+        year,
+        existingBreak: existingBreak ? yearlyBreakFromDb(existingBreak) : null,
+        settings: {
+          yearlyBreakEntitlementDays: settings.yearlyBreakEntitlementDays,
+          yearlyBreakMinMonthsEmployed: settings.yearlyBreakMinMonthsEmployed
+        }
+      });
+    });
+  }
+
+  async listEmployeeYearlyBreaks(employeeId: string) {
+    const rows = await this.prisma.yearlyBreak.findMany({
+      where: { employeeId },
+      include: { registeredBy: true },
+      orderBy: { year: "desc" }
+    });
+    return rows.map(yearlyBreakFromDb);
+  }
+
+  async registerYearlyBreak(employeeId: string, input: { year: number; startDate: string; endDate: string; notes?: string }, registeredByUserId?: string) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) return null;
+    const existing = await this.prisma.yearlyBreak.findUnique({ where: { employeeId_year: { employeeId, year: input.year } } });
+    const eligibility = yearlyBreakEligibility({
+      employee: employeeFromDb(employee),
+      year: input.year,
+      existingBreak: existing ? yearlyBreakFromDb(existing) : null,
+      settings: this.payrollSettingsConfig
+    });
+    if (!eligibility.eligible) throw new Error(eligibility.reason || "Employee is not eligible for yearly break");
+
+    const days = inclusiveDayCount(input.startDate, input.endDate);
+    if (days > this.payrollSettingsConfig.yearlyBreakEntitlementDays) {
+      throw new Error(`Yearly break cannot exceed ${this.payrollSettingsConfig.yearlyBreakEntitlementDays} days.`);
+    }
+
+    const breakRow = await this.prisma.yearlyBreak.create({
+      data: {
+        employeeId,
+        year: input.year,
+        startDate: new Date(input.startDate),
+        endDate: new Date(input.endDate),
+        days,
+        status: "SCHEDULED",
+        notes: input.notes || null,
+        registeredByUserId: registeredByUserId ?? null
+      },
+      include: { registeredBy: true }
+    });
+
+    for (const date of datesBetween(input.startDate, input.endDate)) {
+      await this.prisma.attendance.upsert({
+        where: { employeeId_date: { employeeId, date } },
+        update: { status: "ON_LEAVE", checkInTime: null, checkOutTime: null, totalHours: null, overtimeHours: null },
+        create: { employeeId, date, status: "ON_LEAVE" }
+      });
+      await this.recalculateExistingPayrollForEmployee(employeeId, date);
+    }
+
+    return yearlyBreakFromDb(breakRow);
   }
 }

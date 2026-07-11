@@ -38,10 +38,17 @@ enum EmployeeStatus {
   INACTIVE
 }
 
+enum YearlyBreakStatus {
+  SCHEDULED
+  TAKEN
+  CANCELLED
+}
+
 enum AttendanceStatus {
   PRESENT
   ABSENT
   LATE
+  ON_LEAVE
 }
 
 enum InventoryMovementType {
@@ -109,6 +116,8 @@ model User {
   employee           Employee?            @relation(fields: [employeeId], references: [id])
   passwordResetTokens PasswordResetToken[]
   sales              Sale[]
+  salaryHistoryChanges SalaryHistory[]
+  yearlyBreakRegistrations YearlyBreak[]
   isActive           Boolean              @default(true)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -148,6 +157,8 @@ model Employee {
   user           User?
   attendance     Attendance[]
   payrolls       Payroll[]
+  salaryHistory  SalaryHistory[]
+  yearlyBreaks   YearlyBreak[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 }
@@ -325,4 +336,38 @@ model PayrollAuditLog {
   action    String
   details   String?
   createdAt DateTime @default(now())
+}
+
+model SalaryHistory {
+  id              String   @id @default(cuid())
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  previousSalary  Decimal  @db.Decimal(12, 2)
+  newSalary       Decimal  @db.Decimal(12, 2)
+  effectiveDate   DateTime
+  reason          String?
+  changedByUserId String?
+  changedBy       User?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([employeeId, effectiveDate])
+}
+
+model YearlyBreak {
+  id                 String            @id @default(cuid())
+  employeeId         String
+  employee           Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  year               Int
+  startDate          DateTime
+  endDate            DateTime
+  days               Int
+  status             YearlyBreakStatus @default(SCHEDULED)
+  notes              String?
+  registeredByUserId String?
+  registeredBy       User?             @relation(fields: [registeredByUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([employeeId, year])
+  @@index([year])
 }

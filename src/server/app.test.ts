@@ -404,7 +404,7 @@ describe("Light Garment ERP API", () => {
     await request(app)
       .patch("/api/payroll/settings")
       .set("Authorization", `Bearer ${token}`)
-      .send({ standardHoursPerDay: 8, workingDaysPerMonth: 26, gracePeriodMinutes: 10, overtimeRatePerHour: 100, latePenaltyEnabled: true, latePenaltyAmount: 25, absenceDeductionEnabled: true, taxPercentage: 0, defaultAllowance: 100, defaultBonus: 50 })
+      .send({ standardHoursPerDay: 8, workingDaysPerMonth: 26, gracePeriodMinutes: 10, overtimeRatePerHour: 100, latePenaltyEnabled: true, latePenaltyAmount: 25, absenceDeductionEnabled: true, taxPercentage: 0, defaultAllowance: 100, defaultBonus: 50, yearlyBreakEntitlementDays: 14, yearlyBreakMinMonthsEmployed: 12 })
       .expect(200);
 
     await request(app)
@@ -543,5 +543,75 @@ describe("Light Garment ERP API", () => {
     expect(paid.body.paymentStatus).toBe("Paid");
     expect(paid.body.amountPaid).toBe(unpaid.body.total);
     expect(paid.body.paymentMethod).toBe("Mobile money");
+  });
+
+  it("lets the owner increase salary and keeps salary history", async () => {
+    const { app, token } = await login();
+    const employees = await request(app).get("/api/employees?pageSize=10").set("Authorization", `Bearer ${token}`).expect(200);
+    const employee = employees.body.data[0];
+
+    const increased = await request(app)
+      .post(`/api/employees/${employee.id}/salary-increase`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ newSalary: employee.salary + 1500, reason: "Annual raise" })
+      .expect(200);
+
+    expect(increased.body.employee.salary).toBe(employee.salary + 1500);
+    expect(increased.body.history.previousSalary).toBe(employee.salary);
+    expect(increased.body.history.newSalary).toBe(employee.salary + 1500);
+    expect(increased.body.history.reason).toBe("Annual raise");
+
+    const history = await request(app)
+      .get(`/api/employees/${employee.id}/salary-history`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(history.body.some((entry: { newSalary: number; reason: string }) => entry.newSalary === employee.salary + 1500 && entry.reason === "Annual raise")).toBe(true);
+
+    await request(app)
+      .post(`/api/employees/${employee.id}/salary-increase`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ newSalary: employee.salary })
+      .expect(400);
+  });
+
+  it("lists yearly break eligibility and registers leave for eligible employees", async () => {
+    const { app, token } = await login();
+    const year = 2026;
+
+    const eligibility = await request(app)
+      .get(`/api/yearly-breaks/eligibility?year=${year}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(eligibility.body.length).toBeGreaterThan(0);
+    const eligible = eligibility.body.find((row: { eligible: boolean }) => row.eligible);
+    expect(eligible).toBeTruthy();
+
+    const ineligible = eligibility.body.find((row: { employee: { hireDate: string }; eligible: boolean }) => row.employee.hireDate === "2023-05-20");
+    expect(ineligible?.eligible).toBe(true);
+
+    const registered = await request(app)
+      .post(`/api/employees/${eligible.employee.id}/yearly-break`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ year, startDate: "2026-07-01", endDate: "2026-07-07", notes: "Annual leave" })
+      .expect(201);
+
+    expect(registered.body.status).toBe("Scheduled");
+    expect(registered.body.days).toBe(7);
+
+    const breaks = await request(app)
+      .get(`/api/employees/${eligible.employee.id}/yearly-breaks`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(breaks.body.some((item: { year: number }) => item.year === year)).toBe(true);
+
+    const attendance = await request(app)
+      .get("/api/attendance?date=2026-07-03")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(attendance.body.some((record: { employeeId: string; status: string }) => record.employeeId === eligible.employee.id && record.status === "On leave")).toBe(true);
   });
 });

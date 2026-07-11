@@ -150,7 +150,7 @@ const attendanceActionSchema = z.object({
 const manualAttendanceSchema = z.object({
   employeeId: z.string(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  status: z.enum(["Present", "Absent", "Late"]),
+  status: z.enum(["Present", "Absent", "Late", "On leave"]),
   checkInTime: z.string().datetime().optional().or(z.literal("")),
   checkOutTime: z.string().datetime().optional().or(z.literal(""))
 });
@@ -182,7 +182,22 @@ const payrollSettingsSchema = z.object({
   absenceDeductionEnabled: z.boolean(),
   taxPercentage: z.coerce.number().nonnegative().optional(),
   defaultAllowance: z.coerce.number().nonnegative(),
-  defaultBonus: z.coerce.number().nonnegative()
+  defaultBonus: z.coerce.number().nonnegative(),
+  yearlyBreakEntitlementDays: z.coerce.number().int().positive(),
+  yearlyBreakMinMonthsEmployed: z.coerce.number().int().positive()
+});
+
+const salaryIncreaseSchema = z.object({
+  newSalary: z.coerce.number().positive(),
+  effectiveDate: dateField.optional(),
+  reason: z.string().min(2).optional()
+});
+
+const yearlyBreakSchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  startDate: dateField,
+  endDate: dateField,
+  notes: z.string().optional()
 });
 
 const payrollAdjustmentSchema = z.object({
@@ -358,12 +373,63 @@ export async function createApp() {
       profileImageUrl: files.profilePicture ? imageFileToDataUrl(files.profilePicture) : undefined,
       idImageUrl: files.idDocumentFront ? imageFileToDataUrl(files.idDocumentFront) : undefined,
       idImageBackUrl: files.idDocumentBack ? imageFileToDataUrl(files.idDocumentBack) : undefined
-    });
+    }, request.user?.id);
     if (!employee) {
       response.status(404).json({ message: "Employee not found" });
       return;
     }
     response.json(employee);
+  }));
+
+  app.get("/api/employees/:id/salary-history", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const employee = await repository.getEmployee(String(request.params.id));
+    if (!employee) {
+      response.status(404).json({ message: "Employee not found" });
+      return;
+    }
+    response.json(await repository.listSalaryHistory(String(request.params.id)));
+  }));
+
+  app.post("/api/employees/:id/salary-increase", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    try {
+      const parsed = salaryIncreaseSchema.parse(request.body);
+      const result = await repository.increaseEmployeeSalary(String(request.params.id), parsed, request.user?.id);
+      if (!result?.employee) {
+        response.status(404).json({ message: "Employee not found" });
+        return;
+      }
+      response.json(result);
+    } catch (error) {
+      response.status(400).json({ message: error instanceof Error ? error.message : "Could not update salary" });
+    }
+  }));
+
+  app.get("/api/employees/:id/yearly-breaks", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const employee = await repository.getEmployee(String(request.params.id));
+    if (!employee) {
+      response.status(404).json({ message: "Employee not found" });
+      return;
+    }
+    response.json(await repository.listEmployeeYearlyBreaks(String(request.params.id)));
+  }));
+
+  app.post("/api/employees/:id/yearly-break", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    try {
+      const parsed = yearlyBreakSchema.parse(request.body);
+      const yearlyBreak = await repository.registerYearlyBreak(String(request.params.id), parsed, request.user?.id);
+      if (!yearlyBreak) {
+        response.status(404).json({ message: "Employee not found" });
+        return;
+      }
+      response.status(201).json(yearlyBreak);
+    } catch (error) {
+      response.status(400).json({ message: error instanceof Error ? error.message : "Could not register yearly break" });
+    }
+  }));
+
+  app.get("/api/yearly-breaks/eligibility", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {
+    const year = Number(request.query.year || new Date().getFullYear());
+    response.json(await repository.listYearlyBreakEligibility(year));
   }));
 
   app.delete("/api/employees/:id", auth, allow("Owner", "HR/Admin"), asyncRoute(async (request, response) => {

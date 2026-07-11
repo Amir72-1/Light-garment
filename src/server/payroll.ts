@@ -10,7 +10,9 @@ export const defaultPayrollSettings: PayrollSettings = {
   absenceDeductionEnabled: true,
   taxPercentage: 0,
   defaultAllowance: 0,
-  defaultBonus: 0
+  defaultBonus: 0,
+  yearlyBreakEntitlementDays: 14,
+  yearlyBreakMinMonthsEmployed: 12
 };
 
 export function monthKey(month: number, year: number) {
@@ -38,7 +40,7 @@ export function calculatePayrollRecord(params: {
   createdAt?: string;
   updatedAt?: string;
 }): PayrollRecord {
-  const attended = params.attendance.filter((record) => record.status === "Present" || record.status === "Late");
+  const attended = params.attendance.filter((record) => record.status === "Present" || record.status === "Late" || record.status === "On leave");
   const presentDays = params.attendance.filter((record) => record.status === "Present").length;
   const lateDays = params.attendance.filter((record) => record.status === "Late").length;
   const absentDays = Math.max(0, params.settings.workingDaysPerMonth - attended.length);

@@ -19,8 +19,12 @@ import type {
   RawMaterialMovement,
   RoleName,
   Sale,
-  SaleItem
+  SaleItem,
+  SalaryHistoryEntry,
+  YearlyBreak,
+  YearlyBreakEligibility
 } from "../shared/types.js";
+import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
@@ -135,6 +139,8 @@ export class DemoRepository {
   private payrolls: PayrollRecord[] = [];
   private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
   private payrollAudit: Array<{ payrollId: string; action: string; details?: string; at: string }> = [];
+  private salaryHistory: SalaryHistoryEntry[] = [];
+  private yearlyBreaks: YearlyBreak[] = [];
   private production: ProductionStage[] = [];
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
@@ -387,14 +393,37 @@ export class DemoRepository {
     const nextNumber = this.employees.length + 1;
     const employee: Employee = { ...input, id: id("emp"), employeeCode: input.employeeCode || `LGM-EMP-${String(nextNumber).padStart(4, "0")}` };
     this.employees.unshift(employee);
+    this.salaryHistory.unshift({
+      id: id("sal"),
+      employeeId: employee.id,
+      previousSalary: 0,
+      newSalary: employee.salary,
+      effectiveDate: employee.hireDate,
+      reason: "Initial registration",
+      createdAt: nowIso()
+    });
     this.log(`Employee ${employee.employeeCode} registered`);
     return sanitizeEmployee(employee);
   }
 
-  async updateEmployee(employeeId: string, input: Partial<EmployeeInput>) {
+  async updateEmployee(employeeId: string, input: Partial<EmployeeInput>, changedByUserId?: string) {
     const index = this.employees.findIndex((employee) => employee.id === employeeId);
     if (index === -1) return null;
-    this.employees[index] = { ...this.employees[index], ...input };
+    const existing = this.employees[index];
+    if (input.salary !== undefined && input.salary !== existing.salary) {
+      this.salaryHistory.unshift({
+        id: id("sal"),
+        employeeId,
+        previousSalary: existing.salary,
+        newSalary: input.salary,
+        effectiveDate: todayKey(),
+        reason: "Updated from employee record",
+        changedByName: changedByUserId ? this.users.find((user) => user.id === changedByUserId)?.name : undefined,
+        createdAt: nowIso()
+      });
+      this.recalculateExistingPayrollForEmployee(employeeId, todayKey());
+    }
+    this.employees[index] = { ...existing, ...input };
     this.log(`Employee ${this.employees[index].employeeCode} updated`);
     return sanitizeEmployee(this.employees[index]);
   }
@@ -465,7 +494,7 @@ export class DemoRepository {
       .map((item) => applyAttendanceCalculations(item, this.attendanceConfig))
       .sort((left, right) => left.date.localeCompare(right.date));
     const totalWorkingDays = workingDaysInMonth(month).length;
-    const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late").length;
+    const attendedDays = records.filter((item) => item.status === "Present" || item.status === "Late" || item.status === "On leave").length;
     return { employee, month, records, totalWorkingDays, attendancePercentage: Math.round((attendedDays / totalWorkingDays) * 100) };
   }
 
@@ -510,8 +539,8 @@ export class DemoRepository {
       this.attendance.unshift(record);
     } else {
       record.status = input.status;
-      record.checkInTime = input.status === "Absent" ? undefined : input.checkInTime || record.checkInTime;
-      record.checkOutTime = input.status === "Absent" ? undefined : input.checkOutTime || record.checkOutTime;
+      record.checkInTime = input.status === "Absent" || input.status === "On leave" ? undefined : input.checkInTime || record.checkInTime;
+      record.checkOutTime = input.status === "Absent" || input.status === "On leave" ? undefined : input.checkOutTime || record.checkOutTime;
       record.totalHours = totalHours(record.checkInTime, record.checkOutTime);
       record.overtimeHours = overtimeHours(record.checkOutTime, record.date, this.attendanceConfig);
     }
@@ -840,6 +869,95 @@ export class DemoRepository {
 
   async settings() {
     return this.company;
+  }
+
+  async listSalaryHistory(employeeId: string) {
+    return this.salaryHistory.filter((entry) => entry.employeeId === employeeId).sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate));
+  }
+
+  async increaseEmployeeSalary(employeeId: string, input: { newSalary: number; effectiveDate?: string; reason?: string }, changedByUserId?: string) {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee) return null;
+    if (input.newSalary <= employee.salary) throw new Error("New salary must be higher than the current salary.");
+    const effectiveDate = input.effectiveDate || todayKey();
+    const history: SalaryHistoryEntry = {
+      id: id("sal"),
+      employeeId,
+      previousSalary: employee.salary,
+      newSalary: input.newSalary,
+      effectiveDate,
+      reason: input.reason || "Salary increase",
+      changedByName: changedByUserId ? this.users.find((user) => user.id === changedByUserId)?.name : undefined,
+      createdAt: nowIso()
+    };
+    employee.salary = input.newSalary;
+    this.salaryHistory.unshift(history);
+    this.recalculateExistingPayrollForEmployee(employeeId, effectiveDate);
+    this.log(`Salary increased for ${employee.fullName}`);
+    return { employee: sanitizeEmployee(employee), history };
+  }
+
+  async listYearlyBreakEligibility(year: number) {
+    return this.employees
+      .filter((employee) => !employee.archivedAt)
+      .map((employee) => yearlyBreakEligibility({
+        employee: sanitizeEmployee(employee),
+        year,
+        existingBreak: this.yearlyBreaks.find((item) => item.employeeId === employee.id && item.year === year) ?? null,
+        settings: this.payrollSettingsConfig
+      }))
+      .sort((left, right) => left.employee.fullName.localeCompare(right.employee.fullName));
+  }
+
+  async listEmployeeYearlyBreaks(employeeId: string) {
+    return this.yearlyBreaks.filter((item) => item.employeeId === employeeId).sort((left, right) => right.year - left.year);
+  }
+
+  async registerYearlyBreak(employeeId: string, input: { year: number; startDate: string; endDate: string; notes?: string }, registeredByUserId?: string) {
+    const employee = await this.getEmployee(employeeId);
+    if (!employee) return null;
+    const existing = this.yearlyBreaks.find((item) => item.employeeId === employeeId && item.year === input.year) ?? null;
+    const eligibility = yearlyBreakEligibility({
+      employee: sanitizeEmployee(employee),
+      year: input.year,
+      existingBreak: existing,
+      settings: this.payrollSettingsConfig
+    });
+    if (!eligibility.eligible) throw new Error(eligibility.reason || "Employee is not eligible for yearly break");
+    const days = inclusiveDayCount(input.startDate, input.endDate);
+    if (days > this.payrollSettingsConfig.yearlyBreakEntitlementDays) {
+      throw new Error(`Yearly break cannot exceed ${this.payrollSettingsConfig.yearlyBreakEntitlementDays} days.`);
+    }
+    const yearlyBreak: YearlyBreak = {
+      id: id("brk"),
+      employeeId,
+      year: input.year,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      days,
+      status: "Scheduled",
+      notes: input.notes,
+      registeredByName: registeredByUserId ? this.users.find((user) => user.id === registeredByUserId)?.name : undefined,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    this.yearlyBreaks.unshift(yearlyBreak);
+    for (const date of datesBetween(input.startDate, input.endDate)) {
+      let record = this.attendance.find((item) => item.employeeId === employeeId && item.date === date);
+      if (!record) {
+        record = this.recordForEmployee(employee, date, { status: "On leave" });
+        this.attendance.unshift(record);
+      } else {
+        record.status = "On leave";
+        record.checkInTime = undefined;
+        record.checkOutTime = undefined;
+        record.totalHours = undefined;
+        record.overtimeHours = undefined;
+      }
+      this.recalculateExistingPayrollForEmployee(employeeId, date);
+    }
+    this.log(`Yearly break registered for ${employee.fullName}`);
+    return yearlyBreak;
   }
 
   private log(label: string) {

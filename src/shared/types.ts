@@ -59,7 +59,7 @@ export interface AttendanceRecord {
   date: string;
   checkInTime?: string;
   checkOutTime?: string;
-  status: "Present" | "Absent" | "Late";
+  status: "Present" | "Absent" | "Late" | "On leave";
   totalHours?: number;
   overtimeHours?: number;
 }
@@ -170,6 +170,45 @@ export interface PayrollSettings {
   taxPercentage?: number;
   defaultAllowance: number;
   defaultBonus: number;
+  yearlyBreakEntitlementDays: number;
+  yearlyBreakMinMonthsEmployed: number;
+}
+
+export interface SalaryHistoryEntry {
+  id: string;
+  employeeId: string;
+  previousSalary: number;
+  newSalary: number;
+  effectiveDate: string;
+  reason?: string;
+  changedByName?: string;
+  createdAt: string;
+}
+
+export type YearlyBreakStatus = "Scheduled" | "Taken" | "Cancelled";
+
+export interface YearlyBreak {
+  id: string;
+  employeeId: string;
+  year: number;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: YearlyBreakStatus;
+  notes?: string;
+  registeredByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface YearlyBreakEligibility {
+  employee: Employee;
+  year: number;
+  eligible: boolean;
+  reason?: string;
+  monthsEmployed: number;
+  entitlementDays: number;
+  yearlyBreak?: YearlyBreak;
 }
 
 export interface PayrollRecord {

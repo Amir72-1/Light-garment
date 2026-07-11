@@ -16,8 +16,11 @@ import type {
   ProductionStage,
   RawMaterial,
   RawMaterialMovement,
+  SalaryHistoryEntry,
   Sale,
-  UserSession
+  UserSession,
+  YearlyBreak,
+  YearlyBreakEligibility
 } from "../shared/types";
 
 const baseUrl = import.meta.env.VITE_API_URL || "";
@@ -50,6 +53,11 @@ export const api = {
   createEmployee: (token: string, body: FormData) => request<Employee>("/api/employees", { method: "POST", body }, token),
   checkFaydaNumber: (token: string, faydaNumber: string) => request<{ available: boolean; faydaNumber: string }>(`/api/employees/check-fayda/${encodeURIComponent(faydaNumber)}`, {}, token),
   updateEmployee: (token: string, id: string, body: FormData) => request<Employee>(`/api/employees/${id}`, { method: "PUT", body }, token),
+  employeeSalaryHistory: (token: string, id: string) => request<SalaryHistoryEntry[]>(`/api/employees/${id}/salary-history`, {}, token),
+  increaseEmployeeSalary: (token: string, id: string, body: { newSalary: number; effectiveDate?: string; reason?: string }) => request<{ employee: Employee; history: SalaryHistoryEntry }>(`/api/employees/${id}/salary-increase`, { method: "POST", body: JSON.stringify(body) }, token),
+  employeeYearlyBreaks: (token: string, id: string) => request<YearlyBreak[]>(`/api/employees/${id}/yearly-breaks`, {}, token),
+  registerYearlyBreak: (token: string, id: string, body: { year: number; startDate: string; endDate: string; notes?: string }) => request<YearlyBreak>(`/api/employees/${id}/yearly-break`, { method: "POST", body: JSON.stringify(body) }, token),
+  yearlyBreakEligibility: (token: string, year: number) => request<YearlyBreakEligibility[]>(`/api/yearly-breaks/eligibility?year=${year}`, {}, token),
   deleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}`, { method: "DELETE" }, token),
   permanentlyDeleteEmployee: (token: string, id: string) => request<void>(`/api/employees/${id}/permanent`, { method: "DELETE" }, token),
   resetEmployeeCodes: (token: string) => request<Employee[]>("/api/employees/reset-codes", { method: "POST" }, token),
