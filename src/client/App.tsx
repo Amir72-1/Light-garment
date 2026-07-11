@@ -1758,7 +1758,7 @@ function Production({ token }: { token: string }) {
 }
 
 function Reports({ token }: { token: string }) {
-  const { formatDateTime } = usePreferences();
+  const { formatDate, formatDateTime } = usePreferences();
   const reports = useQuery({ queryKey: ["reports"], queryFn: () => api.reports(token) });
   const data = reports.data as any;
   const exportReport = () => exportCsv("light-garment-reports.csv", [
@@ -1792,7 +1792,7 @@ function Reports({ token }: { token: string }) {
           <ReportTable title="Profit report" rows={[["Revenue", currency(data?.profitReport?.revenue || 0)], ["COGS", currency(data?.profitReport?.cogs || 0)], ["Gross profit", currency(data?.profitReport?.grossProfit || 0)]]} />
           <div className="overflow-x-auto">
             <h3 className="font-bold">Attendance report</h3>
-            <table className="mt-2 w-full min-w-[2200px] text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">Employee</th><th>Date</th><th>Status</th><th>Hours</th><th>Overtime</th></tr></thead><tbody>{data?.attendanceReport?.records?.map((record: AttendanceRecord) => <tr key={record.id} className="border-t"><td className="py-2">{record.employeeName}</td><td>{record.date}</td><td>{record.status}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ?? "-"}</td></tr>)}</tbody></table>
+            <table className="mt-2 w-full min-w-[2200px] text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">Employee</th><th>Date</th><th>Status</th><th>Hours</th><th>Overtime</th></tr></thead><tbody>{data?.attendanceReport?.records?.map((record: AttendanceRecord) => <tr key={record.id} className="border-t"><td className="py-2">{record.employeeName}</td><td>{formatDate(record.date)}</td><td>{record.status}</td><td>{record.totalHours ?? "-"}</td><td>{record.overtimeHours ?? "-"}</td></tr>)}</tbody></table>
           </div>
         </div>
       </section>
@@ -1806,7 +1806,7 @@ function ReportTable({ title, rows }: { title: string; rows: Array<[string, stri
 
 function SettingsPage({ token, role, theme, onThemeChange }: { token: string; role: RoleName; theme: ThemeMode; onThemeChange: (theme: ThemeMode) => void }) {
   const queryClient = useQueryClient();
-  const { t, locale, calendar, updatePreferences, saving, savedMessage, formatDateTime } = usePreferences();
+  const { t, locale, calendar, updatePreferences, saving, savedMessage, errorMessage, formatDateTime } = usePreferences();
   const [language, setLanguage] = useState(locale);
   const [calendarMode, setCalendarMode] = useState(calendar);
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.settings(token) });
@@ -1850,6 +1850,7 @@ function SettingsPage({ token, role, theme, onThemeChange }: { token: string; ro
           </div>
         </form>
         {savedMessage && <p className="mt-3 text-sm font-semibold text-emerald-700 dark:text-emerald-300">{savedMessage}</p>}
+        {errorMessage && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{errorMessage}</p>}
       </Card>
       <Card>
         <h2 className="text-xl font-black">{t("settings.company")}</h2>

@@ -26,7 +26,7 @@ import type {
 } from "../shared/types.js";
 import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
-import { userPreferencesFromRecord, normalizeCalendar, normalizeLocale, type UserPreferences } from "../shared/preferences.js";
+import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type UserRecord = {
@@ -35,8 +35,6 @@ type UserRecord = {
   email: string;
   passwordHash: string;
   role: RoleName;
-  locale?: string;
-  calendar?: string;
   isActive: boolean;
   lastSeenAt?: string;
   createdAt: string;
@@ -147,6 +145,7 @@ export class DemoRepository {
   private production: ProductionStage[] = [];
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
+  private userPreferences = new Map<string, UserPreferences>();
   private company = {
     name: "Light Garment Manufacturing PLC",
     currency: "ETB",
@@ -291,20 +290,26 @@ export class DemoRepository {
       return null;
     }
     user.lastSeenAt = nowIso();
-    return { id: user.id, name: user.name, email: user.email, role: user.role, ...userPreferencesFromRecord(user) };
+    const preferences = this.userPreferences.get(user.id) ?? defaultUserPreferences;
+    return { id: user.id, name: user.name, email: user.email, role: user.role, ...preferences };
   }
 
   async getUserPreferences(userId: string) {
     const user = this.users.find((candidate) => candidate.id === userId);
-    return user ? userPreferencesFromRecord(user) : null;
+    if (!user) return null;
+    return this.userPreferences.get(userId) ?? defaultUserPreferences;
   }
 
   async updateUserPreferences(userId: string, input: Partial<UserPreferences>) {
     const user = this.users.find((candidate) => candidate.id === userId);
     if (!user) return null;
-    if (input.locale) user.locale = normalizeLocale(input.locale);
-    if (input.calendar) user.calendar = normalizeCalendar(input.calendar);
-    return userPreferencesFromRecord(user);
+    const current = this.userPreferences.get(userId) ?? defaultUserPreferences;
+    const next: UserPreferences = {
+      locale: input.locale ? normalizeLocale(input.locale) : current.locale,
+      calendar: input.calendar ? normalizeCalendar(input.calendar) : current.calendar
+    };
+    this.userPreferences.set(userId, next);
+    return next;
   }
 
   async listUsers() {

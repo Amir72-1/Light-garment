@@ -30,7 +30,7 @@ import type {
 } from "../shared/types.js";
 import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
-import { userPreferencesFromRecord, normalizeCalendar, normalizeLocale, type UserPreferences } from "../shared/preferences.js";
+import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type ListQuery = {
@@ -286,29 +286,59 @@ export class PrismaRepository {
     return new PrismaRepository(new PrismaClient({ adapter }));
   }
 
+  private userPreferencesKey(userId: string) {
+    return `user-preferences:${userId}`;
+  }
+
+  private preferencesFromSetting(value: unknown): UserPreferences {
+    if (value && typeof value === "object" && value !== null) {
+      const record = value as Record<string, unknown>;
+      return {
+        locale: normalizeLocale(typeof record.locale === "string" ? record.locale : undefined),
+        calendar: normalizeCalendar(typeof record.calendar === "string" ? record.calendar : undefined)
+      };
+    }
+    return defaultUserPreferences;
+  }
+
+  private async loadUserPreferences(userId: string) {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: this.userPreferencesKey(userId) } });
+    return row ? this.preferencesFromSetting(row.value) : defaultUserPreferences;
+  }
+
+  private async saveUserPreferences(userId: string, preferences: UserPreferences) {
+    const value = { locale: preferences.locale, calendar: preferences.calendar };
+    await this.prisma.appSetting.upsert({
+      where: { key: this.userPreferencesKey(userId) },
+      create: { key: this.userPreferencesKey(userId), value },
+      update: { value }
+    });
+    return preferences;
+  }
+
   async authenticate(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email }, include: { role: true } });
     if (!user || !user.isActive || !(await bcrypt.compare(password, user.passwordHash))) return null;
     await this.prisma.user.update({ where: { id: user.id }, data: { updatedAt: new Date() } });
-    return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], ...userPreferencesFromRecord(user) };
+    const preferences = await this.loadUserPreferences(user.id);
+    return { id: user.id, name: user.name, email: user.email, role: roleFromDb[user.role.name], ...preferences };
   }
 
   async getUserPreferences(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    return user ? userPreferencesFromRecord(user) : null;
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return null;
+    return this.loadUserPreferences(userId);
   }
 
   async updateUserPreferences(userId: string, input: Partial<UserPreferences>) {
-    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!existing) return null;
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(input.locale ? { locale: normalizeLocale(input.locale) } : {}),
-        ...(input.calendar ? { calendar: normalizeCalendar(input.calendar) } : {})
-      }
-    });
-    return userPreferencesFromRecord(user);
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return null;
+    const current = await this.loadUserPreferences(userId);
+    const next: UserPreferences = {
+      locale: input.locale ? normalizeLocale(input.locale) : current.locale,
+      calendar: input.calendar ? normalizeCalendar(input.calendar) : current.calendar
+    };
+    return this.saveUserPreferences(userId, next);
   }
 
   async listUsers() {
