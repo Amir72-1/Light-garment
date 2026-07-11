@@ -27,6 +27,7 @@ import type {
 import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
+import { BundleInventoryDemo } from "./bundleInventoryDemo.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type UserRecord = {
@@ -146,6 +147,7 @@ export class DemoRepository {
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private activities: DashboardMetrics["recentActivity"] = [];
   private userPreferences = new Map<string, UserPreferences>();
+  private bundleInventory = new BundleInventoryDemo();
   private company = {
     name: "Light Garment Manufacturing PLC",
     currency: "ETB",
@@ -290,6 +292,7 @@ export class DemoRepository {
       return null;
     }
     user.lastSeenAt = nowIso();
+    this.bundleInventory.setUserName(user.id, user.name);
     const preferences = this.userPreferences.get(user.id) ?? defaultUserPreferences;
     return { id: user.id, name: user.name, email: user.email, role: user.role, ...preferences };
   }
@@ -983,5 +986,29 @@ export class DemoRepository {
 
   private log(label: string) {
     this.activities.unshift({ id: id("act"), label, at: nowIso() });
+  }
+
+  async listBundleFabrics() { return this.bundleInventory.listFabrics(); }
+  async listBundleColors() { return this.bundleInventory.listColors(); }
+  async listBundleSizes() { return this.bundleInventory.listSizes(); }
+  async listWarehouses() { return this.bundleInventory.listWarehouses(); }
+  async listStorageLocations(warehouseId?: string) { return this.bundleInventory.listLocations(warehouseId); }
+  async listProductCatalog() { return this.bundleInventory.listCatalog(); }
+  async listInventoryBundles() { return this.bundleInventory.listBundles(); }
+  async searchInventoryBundles(query: string) { return this.bundleInventory.searchBundles(query); }
+  async scanInventoryBundle(code: string, userId: string, ipAddress?: string) { return this.bundleInventory.scanBundle(code); }
+  async registerInventoryBundles(input: Parameters<BundleInventoryDemo["registerBundles"]>[0], userId: string, ipAddress?: string) {
+    return this.bundleInventory.registerBundles(input, { userId, ipAddress });
+  }
+  async moveInventoryBundle(input: Parameters<BundleInventoryDemo["moveBundlePieces"]>[0], userId: string, ipAddress?: string) {
+    return this.bundleInventory.moveBundlePieces(input, { userId, ipAddress });
+  }
+  async splitInventoryBundle(input: Parameters<BundleInventoryDemo["splitBundle"]>[0], userId: string, ipAddress?: string) {
+    return this.bundleInventory.splitBundle(input, { userId, ipAddress });
+  }
+  async listStockTransactions(bundleId?: string) { return this.bundleInventory.listTransactions(bundleId); }
+  async reprintBundleQr(bundleId: string, userId: string, ipAddress?: string) { return this.bundleInventory.reprintQr(bundleId); }
+  async syncInventoryOffline(operations: Parameters<BundleInventoryDemo["syncOfflineOperations"]>[0], userId: string, ipAddress?: string) {
+    return this.bundleInventory.syncOfflineOperations(operations, { userId, ipAddress });
   }
 }

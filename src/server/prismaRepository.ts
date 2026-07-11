@@ -31,6 +31,7 @@ import type {
 import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
+import { BundleInventoryService } from "./bundleInventoryService.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 
 type ListQuery = {
@@ -255,8 +256,18 @@ export class PrismaRepository {
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
   private attendanceConfigLoaded = false;
+  private bundleService: BundleInventoryService;
+  private bundleDefaultsReady = false;
 
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient) {
+    this.bundleService = new BundleInventoryService(prisma);
+  }
+
+  private async ensureBundleDefaults() {
+    if (this.bundleDefaultsReady) return;
+    await this.bundleService.ensureDefaults();
+    this.bundleDefaultsReady = true;
+  }
 
   private async ensureAttendanceConfig() {
     if (this.attendanceConfigLoaded) return;
@@ -1141,5 +1152,80 @@ export class PrismaRepository {
     }
 
     return yearlyBreakFromDb(breakRow);
+  }
+
+  async listBundleFabrics() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listFabrics();
+  }
+
+  async listBundleColors() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listColors();
+  }
+
+  async listBundleSizes() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listSizes();
+  }
+
+  async listWarehouses() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listWarehouses();
+  }
+
+  async listStorageLocations(warehouseId?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listLocations(warehouseId);
+  }
+
+  async listProductCatalog() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listCatalog();
+  }
+
+  async listInventoryBundles() {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listBundles();
+  }
+
+  async searchInventoryBundles(query: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.searchBundles(query);
+  }
+
+  async scanInventoryBundle(code: string, userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.scanBundle(code, { userId, ipAddress });
+  }
+
+  async registerInventoryBundles(input: Parameters<BundleInventoryService["registerBundles"]>[0], userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.registerBundles(input, { userId, ipAddress });
+  }
+
+  async moveInventoryBundle(input: Parameters<BundleInventoryService["moveBundlePieces"]>[0], userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.moveBundlePieces(input, { userId, ipAddress });
+  }
+
+  async splitInventoryBundle(input: Parameters<BundleInventoryService["splitBundle"]>[0], userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.splitBundle(input, { userId, ipAddress });
+  }
+
+  async listStockTransactions(bundleId?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.listTransactions(bundleId);
+  }
+
+  async reprintBundleQr(bundleId: string, userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.reprintQr(bundleId, { userId, ipAddress });
+  }
+
+  async syncInventoryOffline(operations: Parameters<BundleInventoryService["syncOfflineOperations"]>[0], userId: string, ipAddress?: string) {
+    await this.ensureBundleDefaults();
+    return this.bundleService.syncOfflineOperations(operations, { userId, ipAddress });
   }
 }

@@ -23,6 +23,22 @@ import type {
   YearlyBreakEligibility
 } from "../shared/types";
 import type { UserPreferences } from "../shared/preferences.js";
+import type {
+  BundleScanResult,
+  ColorOption,
+  FabricType,
+  InventoryBundle,
+  MoveBundleInput,
+  OfflineSyncOperation,
+  OfflineSyncResult,
+  ProductCatalog,
+  RegisterBundleInput,
+  SizeOption,
+  SplitBundleInput,
+  StockTransaction,
+  StorageLocation,
+  Warehouse
+} from "../shared/bundleInventory.js";
 
 const baseUrl = import.meta.env.VITE_API_URL || "";
 
@@ -76,6 +92,27 @@ export const api = {
   createProduct: (token: string, body: Partial<Product>) => request<Product>("/api/products", { method: "POST", body: JSON.stringify(body) }, token),
   inventory: (token: string) => request<InventoryMovement[]>("/api/inventory", {}, token),
   moveStock: (token: string, body: Record<string, unknown>) => request<InventoryMovement>("/api/inventory/movements", { method: "POST", body: JSON.stringify(body) }, token),
+  bundleMetadata: (token: string) =>
+    request<{ fabrics: FabricType[]; colors: ColorOption[]; sizes: SizeOption[]; warehouses: Warehouse[]; catalog: ProductCatalog[] }>("/api/bundles/metadata", {}, token),
+  bundleLocations: (token: string, warehouseId: string) =>
+    request<StorageLocation[]>(`/api/bundles/locations?warehouseId=${encodeURIComponent(warehouseId)}`, {}, token),
+  bundles: (token: string) => request<InventoryBundle[]>("/api/bundles", {}, token),
+  searchBundles: (token: string, query: string) =>
+    request<InventoryBundle[]>(`/api/bundles/search?q=${encodeURIComponent(query)}`, {}, token),
+  registerBundles: (token: string, body: RegisterBundleInput) =>
+    request<InventoryBundle[]>("/api/bundles/register", { method: "POST", body: JSON.stringify(body) }, token),
+  scanBundle: (token: string, code: string) =>
+    request<BundleScanResult>("/api/bundles/scan", { method: "POST", body: JSON.stringify({ code }) }, token),
+  moveBundle: (token: string, body: MoveBundleInput) =>
+    request<{ source: InventoryBundle; destination?: InventoryBundle; transaction: StockTransaction }>("/api/bundles/move", { method: "POST", body: JSON.stringify(body) }, token),
+  splitBundle: (token: string, body: SplitBundleInput) =>
+    request<{ source: InventoryBundle; destination?: InventoryBundle; transaction: StockTransaction }>("/api/bundles/split", { method: "POST", body: JSON.stringify(body) }, token),
+  bundleTransactions: (token: string, bundleId?: string) =>
+    request<StockTransaction[]>(`/api/bundles/transactions${bundleId ? `?bundleId=${encodeURIComponent(bundleId)}` : ""}`, {}, token),
+  reprintBundleQr: (token: string, bundleId: string) =>
+    request<InventoryBundle>(`/api/bundles/${encodeURIComponent(bundleId)}/reprint`, { method: "POST" }, token),
+  syncBundles: (token: string, operations: OfflineSyncOperation[]) =>
+    request<OfflineSyncResult[]>("/api/bundles/sync", { method: "POST", body: JSON.stringify({ operations }) }, token),
   rawMaterials: (token: string) => request<RawMaterial[]>("/api/raw-materials", {}, token),
   createRawMaterial: (token: string, body: Omit<RawMaterial, "id">) => request<RawMaterial>("/api/raw-materials", { method: "POST", body: JSON.stringify(body) }, token),
   useRawMaterial: (token: string, id: string, body: Record<string, unknown>) => request<RawMaterialMovement>(`/api/raw-materials/${id}/use`, { method: "POST", body: JSON.stringify(body) }, token),

@@ -649,3 +649,133 @@ describe("Light Garment ERP API", () => {
     expect(saved.body).toEqual({ locale: "am", calendar: "ethiopian" });
   });
 });
+
+describe("Bundle inventory API", () => {
+  it("registers bundles with unique QR codes and supports scan, move, and split", async () => {
+    const { app, token } = await login();
+    const metadata = await request(app).get("/api/bundles/metadata").set("Authorization", `Bearer ${token}`).expect(200);
+    const warehouseId = metadata.body.warehouses[0].id as string;
+
+    const registered = await request(app)
+      .post("/api/bundles/register")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        productName: "Men's Polo Shirt",
+        style: "Classic fit",
+        fabric: "Cotton",
+        color: "Blue",
+        size: "L",
+        bundleQuantity: 2,
+        piecesPerBundle: 25,
+        unitCost: 120,
+        sellingPrice: 250,
+        warehouseId
+      })
+      .expect(201);
+
+    expect(registered.body).toHaveLength(2);
+    expect(registered.body[0].qrCodeNumber).not.toBe(registered.body[1].qrCodeNumber);
+    expect(registered.body[0].qrImageUrl).toMatch(/^data:image\/png;base64,/);
+    expect(registered.body[0].remainingPieces).toBe(25);
+
+    const scanned = await request(app)
+      .post("/api/bundles/scan")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ code: registered.body[0].qrPayload })
+      .expect(200);
+
+    expect(scanned.body.bundleNumber).toBe(registered.body[0].bundleNumber);
+    expect(scanned.body.productName).toBe("Men's Polo Shirt");
+
+    const locations = await request(app)
+      .get(`/api/bundles/locations?warehouseId=${warehouseId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const moveOk = await request(app)
+      .post("/api/bundles/move")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        bundleId: registered.body[0].id,
+        quantity: 7,
+        toWarehouseId: warehouseId,
+        toLocationId: locations.body[0]?.id,
+        type: "Transfer",
+        reason: "Shelf transfer",
+        expectedVersion: registered.body[0].version
+      })
+      .expect(201);
+
+    expect(moveOk.body.source.remainingPieces).toBe(18);
+    expect(moveOk.body.destination.remainingPieces).toBe(7);
+
+    const overMove = await request(app)
+      .post("/api/bundles/move")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        bundleId: registered.body[0].id,
+        quantity: 999,
+        toWarehouseId: warehouseId,
+        type: "Transfer"
+      })
+      .expect(409);
+
+    expect(overMove.body.message).toMatch(/Cannot move|Only/);
+
+    const search = await request(app)
+      .get("/api/bundles/search?q=Polo")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(search.body.length).toBeGreaterThanOrEqual(2);
+
+    const transactions = await request(app)
+      .get("/api/bundles/transactions")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(transactions.body.length).toBeGreaterThan(0);
+
+    const reprint = await request(app)
+      .post(`/api/bundles/${registered.body[1].id}/reprint`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(reprint.body.id).toBe(registered.body[1].id);
+  });
+
+  it("syncs offline bundle operations", async () => {
+    const { app, token } = await login();
+    const metadata = await request(app).get("/api/bundles/metadata").set("Authorization", `Bearer ${token}`).expect(200);
+    const warehouseId = metadata.body.warehouses[0].id as string;
+    const clientId = `offline_test_${Date.now()}`;
+
+    const synced = await request(app)
+      .post("/api/bundles/sync")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        operations: [
+          {
+            clientId,
+            type: "register_bundle",
+            clientTimestamp: new Date().toISOString(),
+            payload: {
+              productName: "Offline Shirt",
+              style: "Slim",
+              color: "Black",
+              size: "M",
+              bundleQuantity: 1,
+              piecesPerBundle: 10,
+              unitCost: 90,
+              sellingPrice: 180,
+              warehouseId
+            }
+          }
+        ]
+      })
+      .expect(200);
+
+    expect(synced.body[0].success).toBe(true);
+    expect(synced.body[0].data).toHaveLength(1);
+  });
+});

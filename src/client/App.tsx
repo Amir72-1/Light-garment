@@ -21,6 +21,7 @@ import {
   X
 } from "lucide-react";
 import { api } from "./api";
+import { BundleInventoryPanel } from "./bundleInventory";
 import { scanEmployeeIdSides } from "./idOcr";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
 import {
@@ -1582,6 +1583,7 @@ function isPaidStatus(status: string) {
 }
 
 function Inventory({ token }: { token: string }) {
+  const [inventoryTab, setInventoryTab] = useState<"bundles" | "legacy">("bundles");
   const { formatDateTime } = usePreferences();
   const queryClient = useQueryClient();
   const products = useQuery({ queryKey: ["products"], queryFn: () => api.products(token) });
@@ -1598,6 +1600,21 @@ function Inventory({ token }: { token: string }) {
 
   return (
     <div className="grid gap-6">
+      <div className="flex flex-wrap gap-2">
+        <Button variant={inventoryTab === "bundles" ? "primary" : "secondary"} onClick={() => setInventoryTab("bundles")}>
+          <ScanLine className="h-4 w-4" />
+          QR bundle inventory
+        </Button>
+        <Button variant={inventoryTab === "legacy" ? "primary" : "secondary"} onClick={() => setInventoryTab("legacy")}>
+          <Shirt className="h-4 w-4" />
+          Legacy stock
+        </Button>
+      </div>
+
+      {inventoryTab === "bundles" ? (
+        <BundleInventoryPanel token={token} />
+      ) : (
+      <>
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <Card>
           <h2 className="text-xl font-black">Add shirt SKU</h2>
@@ -1669,6 +1686,8 @@ function Inventory({ token }: { token: string }) {
           </table>
         </div>
       </Card>
+      </>
+      )}
     </div>
   );
 }

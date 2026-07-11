@@ -11,6 +11,7 @@ import { DemoRepository } from "./data.js";
 import { imageFileToDataUrl } from "./imageStorage.js";
 import { PrismaRepository } from "./prismaRepository.js";
 import type { RoleName } from "../shared/types.js";
+import type { OfflineSyncOperation } from "../shared/bundleInventory.js";
 
 dotenv.config();
 
@@ -218,6 +219,76 @@ const payrollPaymentSchema = z.object({
   paymentMethod: z.enum(["Cash", "Bank transfer", "Mobile money"]).optional(),
   paymentDate: z.string().datetime().optional()
 });
+
+const stockTransactionTypeSchema = z.enum([
+  "Receiving",
+  "Transfer",
+  "Sale",
+  "Return",
+  "Production consumption",
+  "Adjustment",
+  "Cycle count",
+  "Split"
+]);
+
+const registerBundleSchema = z.object({
+  productName: z.string().min(2),
+  style: z.string().min(1),
+  fabric: z.string().optional(),
+  fabricId: z.string().optional(),
+  color: z.string().min(1),
+  colorId: z.string().optional(),
+  size: z.string().min(1),
+  sizeId: z.string().optional(),
+  bundleQuantity: z.coerce.number().int().min(1),
+  piecesPerBundle: z.coerce.number().int().min(1),
+  unitCost: z.coerce.number().nonnegative(),
+  sellingPrice: z.coerce.number().nonnegative(),
+  warehouseId: z.string(),
+  storageLocationId: z.string().optional(),
+  images: z.array(z.string()).optional(),
+  skuPrefix: z.string().optional()
+});
+
+const scanBundleSchema = z.object({
+  code: z.string().min(1)
+});
+
+const moveBundleSchema = z.object({
+  bundleId: z.string(),
+  quantity: z.coerce.number().int().positive(),
+  toWarehouseId: z.string(),
+  toLocationId: z.string().optional(),
+  type: stockTransactionTypeSchema,
+  reason: z.string().optional(),
+  note: z.string().optional(),
+  expectedVersion: z.coerce.number().int().optional()
+});
+
+const splitBundleSchema = z.object({
+  bundleId: z.string(),
+  quantity: z.coerce.number().int().positive(),
+  toWarehouseId: z.string().optional(),
+  toLocationId: z.string().optional(),
+  reason: z.string().optional(),
+  note: z.string().optional(),
+  expectedVersion: z.coerce.number().int().optional()
+});
+
+const offlineSyncSchema = z.object({
+  operations: z.array(z.object({
+    clientId: z.string(),
+    type: z.enum(["register_bundle", "move_inventory", "split_bundle", "stock_adjustment"]),
+    payload: z.record(z.string(), z.unknown()),
+    clientTimestamp: z.string()
+  })).min(1)
+});
+
+function clientIp(request: Request) {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") return forwarded.split(",")[0]?.trim();
+  return request.socket.remoteAddress;
+}
 
 function sign(user: AuthUser) {
   return jwt.sign(user, jwtSecret, { expiresIn: "8h" });
@@ -534,6 +605,66 @@ export async function createApp() {
     response.status(movement ? 201 : 404).json(movement ?? { message: "Product not found" });
   }));
 
+  app.get("/api/bundles/metadata", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
+    const [fabrics, colors, sizes, warehouses, catalog] = await Promise.all([
+      repository.listBundleFabrics(),
+      repository.listBundleColors(),
+      repository.listBundleSizes(),
+      repository.listWarehouses(),
+      repository.listProductCatalog()
+    ]);
+    response.json({ fabrics, colors, sizes, warehouses, catalog });
+  }));
+
+  app.get("/api/bundles/locations", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const warehouseId = request.query.warehouseId ? String(request.query.warehouseId) : undefined;
+    response.json(await repository.listStorageLocations(warehouseId));
+  }));
+
+  app.get("/api/bundles", auth, allow("Owner", "Manager", "Storekeeper", "Salesperson"), asyncRoute(async (_request, response) => {
+    response.json(await repository.listInventoryBundles());
+  }));
+
+  app.get("/api/bundles/search", auth, allow("Owner", "Manager", "Storekeeper", "Salesperson"), asyncRoute(async (request, response) => {
+    response.json(await repository.searchInventoryBundles(String(request.query.q || "")));
+  }));
+
+  app.post("/api/bundles/register", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const parsed = registerBundleSchema.parse(request.body);
+    const bundles = await repository.registerInventoryBundles(parsed, request.user!.id, clientIp(request));
+    response.status(201).json(bundles);
+  }));
+
+  app.post("/api/bundles/scan", auth, allow("Owner", "Manager", "Storekeeper", "Salesperson"), asyncRoute(async (request, response) => {
+    const parsed = scanBundleSchema.parse(request.body);
+    const result = await repository.scanInventoryBundle(parsed.code, request.user!.id, clientIp(request));
+    response.status(result ? 200 : 404).json(result ?? { message: "Bundle not found" });
+  }));
+
+  app.post("/api/bundles/move", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const parsed = moveBundleSchema.parse(request.body);
+    response.status(201).json(await repository.moveInventoryBundle(parsed, request.user!.id, clientIp(request)));
+  }));
+
+  app.post("/api/bundles/split", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const parsed = splitBundleSchema.parse(request.body);
+    response.status(201).json(await repository.splitInventoryBundle(parsed, request.user!.id, clientIp(request)));
+  }));
+
+  app.get("/api/bundles/transactions", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const bundleId = request.query.bundleId ? String(request.query.bundleId) : undefined;
+    response.json(await repository.listStockTransactions(bundleId));
+  }));
+
+  app.post("/api/bundles/:id/reprint", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    response.json(await repository.reprintBundleQr(String(request.params.id), request.user!.id, clientIp(request)));
+  }));
+
+  app.post("/api/bundles/sync", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
+    const parsed = offlineSyncSchema.parse(request.body);
+    response.json(await repository.syncInventoryOffline(parsed.operations as unknown as OfflineSyncOperation[], request.user!.id, clientIp(request)));
+  }));
+
   app.get("/api/raw-materials", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
     response.json(await repository.listRawMaterials());
   }));
@@ -677,7 +808,15 @@ export async function createApp() {
       return;
     }
     if (error instanceof Error) {
-      response.status(error.message.includes("Insufficient") || error.message.includes("already checked in") || error.message.includes("already exists") || error.message.includes("Unique constraint") ? 409 : 500).json({ message: error.message });
+      const conflict =
+        error.message.includes("Insufficient")
+        || error.message.includes("already checked in")
+        || error.message.includes("already exists")
+        || error.message.includes("Unique constraint")
+        || error.message.includes("updated elsewhere")
+        || error.message.includes("Cannot move")
+        || error.message.includes("not found");
+      response.status(conflict ? 409 : 500).json({ message: error.message });
       return;
     }
     response.status(500).json({ message: "Unexpected server error" });

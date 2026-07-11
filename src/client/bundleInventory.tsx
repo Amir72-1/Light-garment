@@ -1,0 +1,759 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Html5QrcodeScanner } from "html5-qrcode";
+import { jsPDF } from "jspdf";
+import {
+  AlertCircle,
+  Camera,
+  CheckCircle2,
+  Download,
+  Loader2,
+  PackagePlus,
+  Printer,
+  QrCode,
+  RefreshCw,
+  ScanLine,
+  Search,
+  Split,
+  Truck,
+  Wifi,
+  WifiOff
+} from "lucide-react";
+import { api } from "./api";
+import { Badge, Button, Card, Field, Input, Select, Textarea } from "./components/ui";
+import {
+  clearFailedOperations,
+  enqueueOperation,
+  listQueuedOperations,
+  markQueuedOperationFailed,
+  removeQueuedOperation,
+  type QueuedOperation
+} from "./offlineStore";
+import type {
+  BundleScanResult,
+  InventoryBundle,
+  MoveBundleInput,
+  RegisterBundleInput,
+  StockTransaction,
+  StockTransactionType
+} from "../shared/bundleInventory.js";
+
+function currency(value: number) {
+  return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
+}
+
+function clientId() {
+  return `offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readImages(files: FileList | null) {
+  if (!files?.length) return Promise.resolve<string[]>([]);
+  return Promise.all(
+    Array.from(files).map(
+      (file) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        })
+    )
+  );
+}
+
+export function printBundleLabels(bundles: InventoryBundle[]) {
+  const doc = new jsPDF({ unit: "mm", format: [80, 50] });
+  bundles.forEach((bundle, index) => {
+    if (index > 0) doc.addPage([80, 50]);
+    if (bundle.qrImageUrl) doc.addImage(bundle.qrImageUrl, "PNG", 4, 4, 22, 22);
+    doc.setFontSize(8);
+    doc.text(bundle.qrCodeNumber, 28, 8);
+    doc.setFontSize(10);
+    doc.text(bundle.productName.slice(0, 28), 28, 14);
+    doc.setFontSize(8);
+    doc.text(`${bundle.color} · ${bundle.size} · ${bundle.remainingPieces} pcs`, 28, 20);
+    doc.text(bundle.warehouseName, 28, 26);
+    doc.text(bundle.bundleNumber, 4, 46);
+  });
+  doc.save(`bundle-labels-${Date.now()}.pdf`);
+}
+
+function printBundleLabelWindow(bundles: InventoryBundle[]) {
+  const html = bundles
+    .map(
+      (bundle) => `
+      <section style="page-break-after:always;width:80mm;padding:8px;font-family:sans-serif">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          ${bundle.qrImageUrl ? `<img src="${bundle.qrImageUrl}" width="96" height="96" alt="QR" />` : ""}
+          <div>
+            <div style="font-size:11px;color:#555">${bundle.qrCodeNumber}</div>
+            <div style="font-size:16px;font-weight:700">${bundle.productName}</div>
+            <div style="font-size:12px">${bundle.color} · ${bundle.size} · ${bundle.remainingPieces} pcs</div>
+            <div style="font-size:12px">${bundle.warehouseName}</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:11px">${bundle.bundleNumber}</div>
+      </section>`
+    )
+    .join("");
+  const popup = window.open("", "_blank", "width=420,height=640");
+  if (!popup) return;
+  popup.document.write(`<!doctype html><html><head><title>QR Labels</title></head><body>${html}<script>window.print();</script></body></html>`);
+  popup.document.close();
+}
+
+export function BundleInventoryPanel({ token }: { token: string }) {
+  const queryClient = useQueryClient();
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("scan");
+  const [search, setSearch] = useState("");
+  const [scanCode, setScanCode] = useState("");
+  const [scanResult, setScanResult] = useState<BundleScanResult | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState<InventoryBundle | null>(null);
+  const [moveQty, setMoveQty] = useState(1);
+  const [moveWarehouseId, setMoveWarehouseId] = useState("");
+  const [moveLocationId, setMoveLocationId] = useState("");
+  const [moveType, setMoveType] = useState<StockTransactionType>("Transfer");
+  const [moveReason, setMoveReason] = useState("");
+  const [splitQty, setSplitQty] = useState(1);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [queued, setQueued] = useState<QueuedOperation[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+  const [registerImages, setRegisterImages] = useState<string[]>([]);
+  const [lastRegistered, setLastRegistered] = useState<InventoryBundle[]>([]);
+  const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set());
+
+  const metadata = useQuery({ queryKey: ["bundle-metadata"], queryFn: () => api.bundleMetadata(token) });
+  const locations = useQuery({
+    queryKey: ["bundle-locations", selectedWarehouseId || moveWarehouseId],
+    queryFn: () => api.bundleLocations(token, selectedWarehouseId || moveWarehouseId),
+    enabled: Boolean(selectedWarehouseId || moveWarehouseId)
+  });
+  const bundles = useQuery({
+    queryKey: ["bundles", search],
+    queryFn: () => (search.trim() ? api.searchBundles(token, search.trim()) : api.bundles(token))
+  });
+  const transactions = useQuery({ queryKey: ["bundle-transactions"], queryFn: () => api.bundleTransactions(token) });
+
+  const refreshQueued = useCallback(async () => {
+    setQueued(await listQueuedOperations());
+  }, []);
+
+  const notify = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    window.setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const invalidateBundleQueries = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["bundles"] });
+    queryClient.invalidateQueries({ queryKey: ["bundle-transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["bundle-metadata"] });
+  }, [queryClient]);
+
+  const syncQueued = useCallback(async () => {
+    const pending = (await listQueuedOperations()).filter((item) => item.status === "pending");
+    if (!pending.length || !navigator.onLine) return;
+    setSyncing(true);
+    try {
+      const results = await api.syncBundles(
+        token,
+        pending.map(({ clientId: id, type, payload, clientTimestamp }) => ({ clientId: id, type, payload, clientTimestamp }))
+      );
+      for (const result of results) {
+        if (result.success) {
+          await removeQueuedOperation(result.clientId);
+        } else {
+          await markQueuedOperationFailed(result.clientId, result.error || "Sync failed");
+        }
+      }
+      await refreshQueued();
+      invalidateBundleQueries();
+      const failed = results.filter((item) => !item.success).length;
+      const synced = results.filter((item) => item.success).length;
+      if (synced) notify("success", `Synced ${synced} offline change${synced === 1 ? "" : "s"}.`);
+      if (failed) notify("error", `${failed} offline change${failed === 1 ? "" : "s"} failed to sync.`);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "Offline sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }, [token, refreshQueued, invalidateBundleQueries, notify]);
+
+  useEffect(() => {
+    refreshQueued();
+    const onOnline = () => {
+      setOnline(true);
+      void syncQueued();
+    };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [refreshQueued, syncQueued]);
+
+  useEffect(() => {
+    if (!metadata.data?.warehouses.length) return;
+    if (!selectedWarehouseId) setSelectedWarehouseId(metadata.data.warehouses[0].id);
+    if (!moveWarehouseId) setMoveWarehouseId(metadata.data.warehouses[0].id);
+  }, [metadata.data, selectedWarehouseId, moveWarehouseId]);
+
+  const scanMutation = useMutation({
+    mutationFn: (code: string) => api.scanBundle(token, code),
+    onSuccess: (result) => {
+      setScanResult(result);
+      setScanError(null);
+      setSelectedBundle(result.bundle);
+      notify("success", `Scanned ${result.bundleNumber}`);
+    },
+    onError: (error: Error) => {
+      setScanResult(null);
+      setScanError(error.message);
+      notify("error", error.message);
+    }
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (input: RegisterBundleInput) => {
+      if (!navigator.onLine) {
+        const operation = {
+          clientId: clientId(),
+          type: "register_bundle" as const,
+          payload: input,
+          clientTimestamp: new Date().toISOString()
+        };
+        await enqueueOperation(operation);
+        await refreshQueued();
+        return { offline: true as const, operation };
+      }
+      return { offline: false as const, bundles: await api.registerBundles(token, input) };
+    },
+    onSuccess: (result) => {
+      if (result.offline) {
+        notify("success", "Bundle registration saved offline. It will sync when you reconnect.");
+      } else {
+        setLastRegistered(result.bundles);
+        notify("success", `Registered ${result.bundles.length} bundle${result.bundles.length === 1 ? "" : "s"}.`);
+        invalidateBundleQueries();
+      }
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const moveMutation = useMutation({
+    mutationFn: async (input: MoveBundleInput) => {
+      if (!navigator.onLine) {
+        const operation = {
+          clientId: clientId(),
+          type: "move_inventory" as const,
+          payload: input,
+          clientTimestamp: new Date().toISOString()
+        };
+        await enqueueOperation(operation);
+        await refreshQueued();
+        return { offline: true as const };
+      }
+      return { offline: false as const, result: await api.moveBundle(token, input) };
+    },
+    onSuccess: (result) => {
+      if (result.offline) {
+        notify("success", "Move saved offline. It will sync when you reconnect.");
+      } else {
+        setSelectedBundle(result.result.source);
+        setScanResult((current) => (current ? { ...current, bundle: result.result.source, remainingPieces: result.result.source.remainingPieces } : current));
+        notify("success", `Moved ${result.result.transaction.quantity} pieces.`);
+        invalidateBundleQueries();
+      }
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const splitMutation = useMutation({
+    mutationFn: async (input: Parameters<typeof api.splitBundle>[1]) => {
+      if (!navigator.onLine) {
+        const operation = {
+          clientId: clientId(),
+          type: "split_bundle" as const,
+          payload: input,
+          clientTimestamp: new Date().toISOString()
+        };
+        await enqueueOperation(operation);
+        await refreshQueued();
+        return { offline: true as const };
+      }
+      return { offline: false as const, result: await api.splitBundle(token, input) };
+    },
+    onSuccess: (result) => {
+      if (result.offline) {
+        notify("success", "Split saved offline. It will sync when you reconnect.");
+      } else {
+        setSelectedBundle(result.result.source);
+        notify("success", `Split ${result.result.transaction.quantity} pieces into a new bundle.`);
+        invalidateBundleQueries();
+      }
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const handleScanSubmit = useCallback(
+    (code: string) => {
+      const trimmed = code.trim();
+      if (!trimmed) return;
+      setScanCode("");
+      scanMutation.mutate(trimmed);
+    },
+    [scanMutation]
+  );
+
+  useEffect(() => {
+    if (!cameraOpen) return;
+    const scanner = new Html5QrcodeScanner("bundle-qr-reader", { fps: 12, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true }, false);
+    scanner.render(
+      (decoded) => {
+        setCameraOpen(false);
+        handleScanSubmit(decoded);
+      },
+      () => undefined
+    );
+    return () => {
+      scanner.clear().catch(() => undefined);
+    };
+  }, [cameraOpen, handleScanSubmit]);
+
+  const pendingCount = queued.filter((item) => item.status === "pending").length;
+  const failedCount = queued.filter((item) => item.status === "failed").length;
+
+  return (
+    <div className="grid gap-6">
+      {toast && (
+        <div className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium ${toast.type === "success" ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
+          {toast.type === "success" ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {toast.message}
+        </div>
+      )}
+
+      <Card className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-xl font-black">QR bundle inventory</h2>
+          <p className="text-sm text-slate-500">Register bundles, scan QR codes, transfer pieces, and sync offline changes.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className={online ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+            {online ? <Wifi className="mr-1 inline h-3.5 w-3.5" /> : <WifiOff className="mr-1 inline h-3.5 w-3.5" />}
+            {online ? "Online" : "Offline"}
+          </Badge>
+          {pendingCount > 0 && <Badge className="bg-sky-100 text-sky-800">{pendingCount} queued</Badge>}
+          {failedCount > 0 && <Badge className="bg-rose-100 text-rose-800">{failedCount} failed</Badge>}
+          <Button variant="secondary" onClick={() => void syncQueued()} disabled={syncing || !online || pendingCount === 0}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync now
+          </Button>
+          {failedCount > 0 && (
+            <Button variant="ghost" onClick={() => void clearFailedOperations().then(refreshQueued)}>
+              Clear failed
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-2">
+        {(["scan", "register", "bundles", "history"] as const).map((key) => (
+          <Button key={key} variant={tab === key ? "primary" : "secondary"} onClick={() => setTab(key)}>
+            {key === "scan" && <ScanLine className="h-4 w-4" />}
+            {key === "register" && <PackagePlus className="h-4 w-4" />}
+            {key === "bundles" && <QrCode className="h-4 w-4" />}
+            {key === "history" && <Truck className="h-4 w-4" />}
+            {key.charAt(0).toUpperCase() + key.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {tab === "scan" && (
+        <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold">QR scanner</h3>
+                <p className="text-sm text-slate-500">USB scanner, webcam, or phone camera. Lookup should be under one second.</p>
+              </div>
+              <Button variant="secondary" onClick={() => setCameraOpen((value) => !value)}>
+                <Camera className="h-4 w-4" />
+                {cameraOpen ? "Close camera" : "Open camera"}
+              </Button>
+            </div>
+            {cameraOpen && <div id="bundle-qr-reader" className="mt-4 overflow-hidden rounded-2xl" />}
+            <form
+              className="mt-4 flex flex-col gap-3 sm:flex-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleScanSubmit(scanCode);
+              }}
+            >
+              <Input
+                ref={scanInputRef}
+                value={scanCode}
+                onChange={(event) => setScanCode(event.target.value)}
+                placeholder="Scan or paste QR code / bundle number"
+                className="text-lg"
+                autoFocus
+              />
+              <Button type="submit" disabled={scanMutation.isPending}>
+                {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                Scan
+              </Button>
+            </form>
+            {scanError && <p className="mt-3 text-sm text-rose-600">{scanError}</p>}
+            {scanResult && (
+              <div className="mt-6 grid gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[120px_1fr]">
+                {scanResult.bundle.qrImageUrl && <img src={scanResult.bundle.qrImageUrl} alt="QR" className="h-28 w-28 rounded-xl bg-white p-2" />}
+                <div className="grid gap-1 text-sm">
+                  <p className="text-lg font-bold">{scanResult.productName}</p>
+                  <p>{scanResult.style}</p>
+                  <p>{scanResult.color} · {scanResult.size}</p>
+                  <p>Bundle {scanResult.bundleNumber}</p>
+                  <p>{scanResult.remainingPieces} pieces remaining</p>
+                  <p>{scanResult.warehouse}{scanResult.shelfLocation ? ` · ${scanResult.shelfLocation}` : ""}</p>
+                  <Badge>{scanResult.status}</Badge>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {selectedBundle && (
+            <Card>
+              <h3 className="text-lg font-bold">Move / split pieces</h3>
+              <p className="mt-1 text-sm text-slate-500">Available: {selectedBundle.remainingPieces} pieces</p>
+              <div className="mt-4 grid gap-3">
+                <Field label="Quantity">
+                  <Input type="number" min={1} max={selectedBundle.remainingPieces} value={moveQty} onChange={(event) => setMoveQty(Number(event.target.value))} />
+                </Field>
+                <Field label="Transaction type">
+                  <Select value={moveType} onChange={(event) => setMoveType(event.target.value as StockTransactionType)}>
+                    <option>Transfer</option>
+                    <option>Sale</option>
+                    <option>Return</option>
+                    <option>Production consumption</option>
+                    <option>Adjustment</option>
+                    <option>Cycle count</option>
+                  </Select>
+                </Field>
+                <Field label="Destination warehouse">
+                  <Select value={moveWarehouseId} onChange={(event) => setMoveWarehouseId(event.target.value)}>
+                    {metadata.data?.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Storage location">
+                  <Select value={moveLocationId} onChange={(event) => setMoveLocationId(event.target.value)}>
+                    <option value="">No shelf</option>
+                    {locations.data?.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Reason">
+                  <Input value={moveReason} onChange={(event) => setMoveReason(event.target.value)} placeholder="Transfer reason" />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    disabled={moveMutation.isPending}
+                    onClick={() =>
+                      moveMutation.mutate({
+                        bundleId: selectedBundle.id,
+                        quantity: moveQty,
+                        toWarehouseId: moveWarehouseId,
+                        toLocationId: moveLocationId || undefined,
+                        type: moveType,
+                        reason: moveReason || undefined,
+                        expectedVersion: selectedBundle.version
+                      })
+                    }
+                  >
+                    <Truck className="h-4 w-4" />
+                    Move
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={splitMutation.isPending}
+                    onClick={() =>
+                      splitMutation.mutate({
+                        bundleId: selectedBundle.id,
+                        quantity: splitQty,
+                        toWarehouseId: moveWarehouseId,
+                        toLocationId: moveLocationId || undefined,
+                        reason: moveReason || "Bundle split",
+                        expectedVersion: selectedBundle.version
+                      })
+                    }
+                  >
+                    <Split className="h-4 w-4" />
+                    Split
+                  </Button>
+                </div>
+                <Field label="Split quantity">
+                  <Input type="number" min={1} max={selectedBundle.remainingPieces - 1} value={splitQty} onChange={(event) => setSplitQty(Number(event.target.value))} />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="secondary" onClick={() => printBundleLabelWindow([selectedBundle])}>
+                    <Printer className="h-4 w-4" />
+                    Print label
+                  </Button>
+                  <Button variant="secondary" onClick={() => printBundleLabels([selectedBundle])}>
+                    <Download className="h-4 w-4" />
+                    Download PDF
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {tab === "register" && (
+        <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
+          <Card>
+            <h3 className="text-lg font-bold">Register inventory bundles</h3>
+            <form
+              className="mt-4 grid gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                registerMutation.mutate({
+                  productName: String(form.get("productName")),
+                  style: String(form.get("style")),
+                  fabric: String(form.get("fabric") || ""),
+                  color: String(form.get("color")),
+                  size: String(form.get("size")),
+                  bundleQuantity: Number(form.get("bundleQuantity")),
+                  piecesPerBundle: Number(form.get("piecesPerBundle")),
+                  unitCost: Number(form.get("unitCost")),
+                  sellingPrice: Number(form.get("sellingPrice")),
+                  warehouseId: String(form.get("warehouseId")),
+                  storageLocationId: String(form.get("storageLocationId") || "") || undefined,
+                  images: registerImages
+                });
+              }}
+            >
+              <Field label="Product name"><Input name="productName" required placeholder="Men's Polo Shirt" /></Field>
+              <Field label="Style / model"><Input name="style" required placeholder="Classic fit" /></Field>
+              <Field label="Fabric">
+                <Select name="fabric" defaultValue="">
+                  <option value="">Custom below</option>
+                  {metadata.data?.fabrics.map((fabric) => <option key={fabric.id} value={fabric.name}>{fabric.name}</option>)}
+                </Select>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Color">
+                  <Select name="color" required>
+                    {metadata.data?.colors.map((color) => <option key={color.id} value={color.name}>{color.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Size">
+                  <Select name="size" required>
+                    {metadata.data?.sizes.map((size) => <option key={size.id} value={size.code}>{size.code}</option>)}
+                  </Select>
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Bundle quantity"><Input name="bundleQuantity" type="number" min={1} defaultValue={1} required /></Field>
+                <Field label="Pieces per bundle"><Input name="piecesPerBundle" type="number" min={1} defaultValue={25} required /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Unit cost"><Input name="unitCost" type="number" min={0} step="0.01" required /></Field>
+                <Field label="Selling price"><Input name="sellingPrice" type="number" min={0} step="0.01" required /></Field>
+              </div>
+              <Field label="Warehouse">
+                <Select name="warehouseId" value={selectedWarehouseId} onChange={(event) => setSelectedWarehouseId(event.target.value)} required>
+                  {metadata.data?.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Storage location">
+                <Select name="storageLocationId" defaultValue="">
+                  <option value="">No shelf</option>
+                  {locations.data?.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Product images">
+                <Input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={async (event) => setRegisterImages(await readImages(event.target.files))}
+                />
+              </Field>
+              <Button disabled={registerMutation.isPending}>
+                {registerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}
+                Register bundles
+              </Button>
+            </form>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-lg font-bold">Generated QR codes</h3>
+              {lastRegistered.length > 0 && (
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => printBundleLabelWindow(lastRegistered)}><Printer className="h-4 w-4" />Print all</Button>
+                  <Button variant="secondary" onClick={() => printBundleLabels(lastRegistered)}><Download className="h-4 w-4" />PDF</Button>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {lastRegistered.map((bundle) => (
+                <div key={bundle.id} className="rounded-2xl border border-slate-100 p-4">
+                  {bundle.qrImageUrl && <img src={bundle.qrImageUrl} alt="QR" className="h-24 w-24" />}
+                  <p className="mt-2 font-bold">{bundle.productName}</p>
+                  <p className="text-sm text-slate-500">{bundle.color} · {bundle.size} · {bundle.piecesPerBundle} pcs</p>
+                  <p className="text-xs text-slate-500">{bundle.bundleNumber} · {bundle.qrCodeNumber}</p>
+                </div>
+              ))}
+              {!lastRegistered.length && <p className="text-sm text-slate-500">Register bundles to generate unique QR codes instantly.</p>}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {tab === "bundles" && (
+        <Card>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-bold">Bundle search</h3>
+              <p className="text-sm text-slate-500">Search by QR code, product, SKU, color, size, or bundle number.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="relative min-w-[240px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search bundles..." />
+              </div>
+              <Button
+                variant="secondary"
+                disabled={selectedBundleIds.size === 0}
+                onClick={() => {
+                  const selected = (bundles.data || []).filter((bundle) => selectedBundleIds.has(bundle.id));
+                  printBundleLabelWindow(selected);
+                }}
+              >
+                <Printer className="h-4 w-4" />
+                Print selected
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {bundles.isLoading && <p className="text-sm text-slate-500">Loading bundles...</p>}
+            {bundles.data?.map((bundle) => (
+              <button
+                key={bundle.id}
+                type="button"
+                onClick={() => {
+                  setSelectedBundle(bundle);
+                  setScanResult({
+                    bundle,
+                    productName: bundle.productName,
+                    style: bundle.style,
+                    color: bundle.color,
+                    size: bundle.size,
+                    bundleNumber: bundle.bundleNumber,
+                    remainingPieces: bundle.remainingPieces,
+                    warehouse: bundle.warehouseName,
+                    shelfLocation: bundle.storageLocationName,
+                    status: bundle.status
+                  });
+                  setTab("scan");
+                }}
+                className={`rounded-2xl border p-4 text-left transition ${selectedBundleIds.has(bundle.id) ? "border-emerald-400 bg-emerald-50/50" : "border-slate-100 hover:border-emerald-200"}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold">{bundle.productName}</p>
+                    <p className="text-sm text-slate-500">{bundle.style}</p>
+                    <p className="text-sm text-slate-500">{bundle.color} · {bundle.size}</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={selectedBundleIds.has(bundle.id)}
+                    onChange={(event) => {
+                      event.stopPropagation();
+                      setSelectedBundleIds((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(bundle.id);
+                        else next.delete(bundle.id);
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
+                <div className="mt-3 flex items-end justify-between gap-3">
+                  <div className="text-sm">
+                    <p>{bundle.bundleNumber}</p>
+                    <p className="text-slate-500">{bundle.warehouseName}</p>
+                  </div>
+                  {bundle.qrImageUrl && <img src={bundle.qrImageUrl} alt="QR" className="h-16 w-16" />}
+                </div>
+                <Badge className="mt-3">{bundle.remainingPieces} pcs · {bundle.status}</Badge>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === "history" && (
+        <Card>
+          <h3 className="text-lg font-bold">Movement history</h3>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="py-2">Date</th>
+                  <th>Type</th>
+                  <th>Bundle</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>User</th>
+                  <th>Reference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.data?.map((tx: StockTransaction) => (
+                  <tr key={tx.id} className="border-t">
+                    <td className="py-2">{new Date(tx.createdAt).toLocaleString()}</td>
+                    <td>{tx.type}</td>
+                    <td>{tx.bundleNumber}</td>
+                    <td>{tx.productName}</td>
+                    <td>{tx.quantity}</td>
+                    <td>{tx.fromWarehouseName || "-"}</td>
+                    <td>{tx.toWarehouseName || "-"}</td>
+                    <td>{tx.userName}</td>
+                    <td>{tx.referenceNumber}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {queued.length > 0 && (
+        <Card>
+          <h3 className="text-lg font-bold">Offline queue</h3>
+          <div className="mt-3 grid gap-2">
+            {queued.map((item) => (
+              <div key={item.clientId} className="flex items-center justify-between rounded-xl bg-slate-50 p-3 text-sm">
+                <div>
+                  <p className="font-medium">{item.type.replaceAll("_", " ")}</p>
+                  <p className="text-slate-500">{new Date(item.clientTimestamp).toLocaleString()}</p>
+                  {item.error && <p className="text-rose-600">{item.error}</p>}
+                </div>
+                <Badge className={item.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-sky-100 text-sky-800"}>{item.status}</Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
