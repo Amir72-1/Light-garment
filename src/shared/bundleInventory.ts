@@ -11,7 +11,7 @@ export type StockTransactionType =
   | "Split";
 
 export interface QrBundlePayload {
-  v: 1;
+  v: 1 | 2;
   bundleId: string;
   bundleNumber: string;
   qrCodeNumber: string;
@@ -21,6 +21,18 @@ export interface QrBundlePayload {
   size: string;
   quantity: number;
   warehouseCode: string;
+  items?: Array<{ color: string; colorCode?: string; size: string; quantity: number }>;
+}
+
+export interface BundleItem {
+  id: string;
+  bundleId: string;
+  variantId?: string;
+  color: string;
+  colorCode?: string;
+  size: string;
+  quantity: number;
+  remaining: number;
 }
 
 export interface FabricType {
@@ -93,6 +105,8 @@ export interface InventoryBundle {
   color: string;
   colorCode?: string;
   size: string;
+  isMixed?: boolean;
+  items?: BundleItem[];
   piecesPerBundle: number;
   remainingPieces: number;
   unitCost: number;
@@ -117,6 +131,8 @@ export interface BundleScanResult {
   color: string;
   colorCode?: string;
   size: string;
+  isMixed?: boolean;
+  items?: BundleItem[];
   bundleNumber: string;
   remainingPieces: number;
   warehouse: string;
@@ -145,6 +161,15 @@ export interface StockTransaction {
   createdAt: string;
 }
 
+export interface RegisterBundleMixedItemInput {
+  color: string;
+  colorId?: string;
+  colorCode?: string;
+  size: string;
+  sizeId?: string;
+  pieces: number;
+}
+
 export interface RegisterBundleVariantInput {
   color: string;
   colorId?: string;
@@ -168,6 +193,8 @@ export interface RegisterBundleInput {
   bundleQuantity?: number;
   piecesPerBundle?: number;
   variants?: RegisterBundleVariantInput[];
+  mixedItems?: RegisterBundleMixedItemInput[];
+  registrationMode?: "separate" | "mixed";
   unitCost: number;
   sellingPrice: number;
   warehouseId: string;
@@ -185,6 +212,8 @@ export interface CreateColorInput {
 export interface MoveBundleInput {
   bundleId: string;
   quantity: number;
+  itemColor?: string;
+  itemSize?: string;
   toWarehouseId?: string;
   toLocationId?: string;
   type: StockTransactionType;
@@ -241,6 +270,24 @@ export function normalizeRegisterVariants(input: RegisterBundleInput): RegisterB
   }];
 }
 
+export function isMixedRegistration(input: RegisterBundleInput) {
+  return input.registrationMode === "mixed" || Boolean(input.mixedItems?.length);
+}
+
+export function normalizeMixedItems(input: RegisterBundleInput): RegisterBundleMixedItemInput[] {
+  if (input.mixedItems?.length) return input.mixedItems;
+  throw new Error("At least one color/size line is required for a mixed assortment bundle.");
+}
+
+export function mixedBundleLineKey(color: string, size: string) {
+  return `${color.trim().toLowerCase()}::${size.trim().toUpperCase()}`;
+}
+
+export function formatMixedBundleSummary(items?: BundleItem[]) {
+  if (!items?.length) return "Mixed assortment";
+  return items.map((item) => `${item.color} ${item.size} (${item.remaining})`).join(" · ");
+}
+
 export function encodeQrPayload(payload: QrBundlePayload) {
   return JSON.stringify(payload);
 }
@@ -251,6 +298,7 @@ export function decodeQrPayload(raw: string): QrBundlePayload | null {
   try {
     const parsed = JSON.parse(trimmed) as QrBundlePayload;
     if (parsed?.v === 1 && parsed.bundleId && parsed.qrCodeNumber) return parsed;
+    if (parsed?.v === 2 && parsed.bundleId && parsed.qrCodeNumber) return parsed;
   } catch {
     // fall through
   }
