@@ -1,143 +1,166 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useId, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
-import { AlertCircle, Camera, Loader2 } from "lucide-react";
-import { Button } from "./components/ui";
-
-const SCANNER_ELEMENT_ID = "bundle-qr-camera-view";
 
 export type BundleQrScannerHandle = {
+  primeCamera: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
 type BundleQrScannerProps = {
+  active: boolean;
+  startToken: number;
   onScan: (code: string) => void;
-  onError?: (message: string) => void;
   paused?: boolean;
 };
 
-function isMobileLikeDevice() {
-  if (typeof navigator === "undefined") return false;
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
-}
+const CAMERA_CONSTRAINTS: MediaStreamConstraints[] = [
+  { video: { facingMode: { exact: "environment" } }, audio: false },
+  { video: { facingMode: "environment" }, audio: false },
+  { video: { facingMode: { ideal: "environment" } }, audio: false },
+  { video: true, audio: false }
+];
 
-async function resolveCameraConfig() {
-  if (!isMobileLikeDevice()) {
-    return { facingMode: "environment" } as const;
+export async function primeBundleCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  for (const constraints of CAMERA_CONSTRAINTS) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    } catch {
+      continue;
+    }
   }
-
-  try {
-    const cameras = await Html5Qrcode.getCameras();
-    const backCamera = cameras.find((camera) => /back|rear|environment/i.test(camera.label));
-    if (backCamera) return backCamera.id;
-  } catch {
-    // Fall back to facingMode below.
-  }
-
-  return { facingMode: "environment" } as const;
 }
 
 function scanBoxSize(viewfinderWidth: number, viewfinderHeight: number) {
-  const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.78);
+  const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.84);
   return { width: edge, height: edge };
 }
 
 export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScannerProps>(function BundleQrScanner(
-  { onScan, onError, paused = false },
+  { active, startToken, onScan, paused = false },
   ref
 ) {
+  const reactId = useId().replace(/:/g, "");
+  const elementId = `bundle-qr-camera-${reactId}`;
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const startingRef = useRef(false);
   const scanLockRef = useRef(false);
-  const lastScanRef = useRef("");
+  const retryTimerRef = useRef<number | null>(null);
   const onScanRef = useRef(onScan);
-  const onErrorRef = useRef(onError);
-  const [status, setStatus] = useState<"idle" | "starting" | "scanning" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [cameraLive, setCameraLive] = useState(false);
 
   onScanRef.current = onScan;
-  onErrorRef.current = onError;
+
+  const clearRetry = useCallback(() => {
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
   const stopScanner = useCallback(async () => {
+    clearRetry();
     const scanner = scannerRef.current;
     scannerRef.current = null;
+    setCameraLive(false);
     if (!scanner) return;
     try {
       if (scanner.isScanning) await scanner.stop();
     } catch {
       // Ignore stop races while the camera is still opening.
     }
-    scanner.clear();
-    setStatus("idle");
-  }, []);
+    try {
+      scanner.clear();
+    } catch {
+      // Ignore clear races after unmount.
+    }
+  }, [clearRetry]);
 
   const startScanner = useCallback(async () => {
-    if (startingRef.current || scannerRef.current?.isScanning) return;
+    if (!active || startingRef.current) return;
+    if (scannerRef.current?.isScanning) {
+      setCameraLive(true);
+      return;
+    }
+
     startingRef.current = true;
-    setStatus("starting");
-    setError(null);
+    clearRetry();
 
     try {
-      await stopScanner();
-      const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, { verbose: false });
+      const scanner = new Html5Qrcode(elementId, { verbose: false });
       scannerRef.current = scanner;
-      const cameraConfig = await resolveCameraConfig();
 
       await scanner.start(
-        cameraConfig,
+        { facingMode: "environment" },
         {
-          fps: 12,
+          fps: 18,
           qrbox: scanBoxSize,
-          aspectRatio: 1,
+          aspectRatio: window.innerWidth < 768 ? 1 : 1.333,
           disableFlip: false,
           videoConstraints: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
           }
         },
         (decoded) => {
-          const trimmed = decoded.trim();
-          if (!trimmed || scanLockRef.current || trimmed === lastScanRef.current) return;
+          const code = decoded.trim();
+          if (!code || scanLockRef.current) return;
           scanLockRef.current = true;
-          lastScanRef.current = trimmed;
-          onScanRef.current(trimmed);
+          onScanRef.current(code);
           scanner.pause(true);
           window.setTimeout(() => {
             scanLockRef.current = false;
             if (scannerRef.current?.isScanning && !paused) {
               scanner.resume().catch(() => undefined);
             }
-          }, 1500);
+          }, 1000);
         },
         () => undefined
       );
 
-      setStatus("scanning");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not access the camera.";
-      setError(message);
-      setStatus("error");
-      onErrorRef.current?.(message);
+      setCameraLive(true);
+    } catch {
       await stopScanner();
+      retryTimerRef.current = window.setTimeout(() => {
+        startingRef.current = false;
+        void startScanner();
+      }, 900);
+      return;
     } finally {
       startingRef.current = false;
     }
-  }, [paused, stopScanner]);
+  }, [active, clearRetry, elementId, paused, stopScanner]);
+
+  const primeAndStart = useCallback(async () => {
+    await primeBundleCamera();
+    await startScanner();
+  }, [startScanner]);
 
   useImperativeHandle(ref, () => ({
-    start: startScanner,
+    primeCamera: primeBundleCamera,
+    start: primeAndStart,
     stop: stopScanner
-  }), [startScanner, stopScanner]);
+  }), [primeAndStart, stopScanner]);
 
   useEffect(() => {
-    if (paused && scannerRef.current?.isScanning) {
-      scannerRef.current.pause(true);
-      return;
+    if (!active) {
+      void stopScanner();
     }
-    if (!paused && scannerRef.current?.isScanning) {
-      scannerRef.current.resume().catch(() => undefined);
-    }
+  }, [active, stopScanner]);
+
+  useEffect(() => {
+    if (!active) return;
+    void primeAndStart();
+  }, [active, startToken, primeAndStart]);
+
+  useEffect(() => {
+    if (!scannerRef.current?.isScanning) return;
+    if (paused) scannerRef.current.pause(true);
+    else scannerRef.current.resume().catch(() => undefined);
   }, [paused]);
 
   useEffect(() => () => {
@@ -145,45 +168,21 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   }, [stopScanner]);
 
   return (
-    <div className="bundle-qr-scanner">
-      <div id={SCANNER_ELEMENT_ID} className="bundle-qr-scanner__viewport" />
-
-      {status === "idle" && (
-        <div className="bundle-qr-scanner__overlay">
-          <Button type="button" className="bundle-qr-scanner__start" onClick={() => void startScanner()}>
-            <Camera className="h-5 w-5" />
-            Tap to scan QR code
-          </Button>
-          <p className="mt-3 text-center text-sm text-slate-500">Point your phone camera at the bundle QR label.</p>
-        </div>
-      )}
-
-      {status === "starting" && (
-        <div className="bundle-qr-scanner__overlay bundle-qr-scanner__overlay--dim">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-          <p className="mt-3 text-sm font-medium text-slate-700">Opening camera...</p>
-        </div>
-      )}
-
-      {status === "scanning" && (
-        <div className="bundle-qr-scanner__hint">
-          <p>Align the QR code inside the frame</p>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="bundle-qr-scanner__overlay bundle-qr-scanner__overlay--dim">
-          <AlertCircle className="h-8 w-8 text-rose-600" />
-          <p className="mt-3 max-w-xs text-center text-sm text-rose-700">{error}</p>
-          <Button type="button" variant="secondary" className="mt-4" onClick={() => void startScanner()}>
-            Try again
-          </Button>
-        </div>
-      )}
+    <div
+      className="bundle-qr-scanner"
+      onClick={() => {
+        if (!cameraLive) void primeAndStart();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !cameraLive) void primeAndStart();
+      }}
+      role="presentation"
+    >
+      <div id={elementId} className="bundle-qr-scanner__viewport" />
+      {!cameraLive && <div className="bundle-qr-scanner__pulse" aria-hidden />}
+      <div className="bundle-qr-scanner__hint">
+        <p>{cameraLive ? "Point at the QR code" : "Opening camera..."}</p>
+      </div>
     </div>
   );
 });
-
-export function shouldAutoStartBundleScanner() {
-  return isMobileLikeDevice();
-}

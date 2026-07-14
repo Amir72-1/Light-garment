@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { jsPDF } from "jspdf";
 import {
   AlertCircle,
-  Camera,
   CheckCircle2,
   Download,
   Loader2,
@@ -21,7 +20,7 @@ import {
   WifiOff
 } from "lucide-react";
 import { api } from "./api";
-import { BundleQrScanner, shouldAutoStartBundleScanner, type BundleQrScannerHandle } from "./bundleQrScanner";
+import { BundleQrScanner, primeBundleCamera, type BundleQrScannerHandle } from "./bundleQrScanner";
 import { Badge, Button, Card, Field, Input, Select, Textarea } from "./components/ui";
 import {
   clearFailedOperations,
@@ -134,8 +133,8 @@ export function BundleInventoryPanel({ token }: { token: string }) {
   const [search, setSearch] = useState("");
   const [scanCode, setScanCode] = useState("");
   const [scanResult, setScanResult] = useState<BundleScanResult | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [scanStartToken, setScanStartToken] = useState(0);
+  const [scanLookupMessage, setScanLookupMessage] = useState<string | null>(null);
   const [selectedBundle, setSelectedBundle] = useState<InventoryBundle | null>(null);
   const [moveQty, setMoveQty] = useState(1);
   const [moveWarehouseId, setMoveWarehouseId] = useState("");
@@ -254,16 +253,15 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     mutationFn: (code: string) => api.scanBundle(token, code),
     onSuccess: (result) => {
       setScanResult(result);
-      setScanError(null);
+      setScanLookupMessage(null);
       setSelectedBundle(result.bundle);
       setMoveItemColor(result.bundle.isMixed ? result.bundle.items?.[0]?.color ?? "" : "");
       setMoveItemSize(result.bundle.isMixed ? result.bundle.items?.[0]?.size ?? "" : "");
       notify("success", `Scanned ${result.bundleNumber}`);
     },
-    onError: (error: Error) => {
+    onError: () => {
       setScanResult(null);
-      setScanError(error.message);
-      notify("error", error.message);
+      setScanLookupMessage("Bundle not found. Try again.");
     }
   });
 
@@ -422,22 +420,19 @@ export function BundleInventoryPanel({ token }: { token: string }) {
     [scanMutation]
   );
 
+  const requestCameraScan = useCallback(() => {
+    setScanStartToken((value) => value + 1);
+    void primeBundleCamera();
+  }, []);
+
   const openScanTab = useCallback(() => {
     setTab("scan");
-    if (shouldAutoStartBundleScanner()) {
-      window.requestAnimationFrame(() => {
-        void scannerRef.current?.start();
-      });
-    }
   }, []);
 
   useEffect(() => {
-    if (tab !== "scan" || !shouldAutoStartBundleScanner()) return;
-    const timer = window.setTimeout(() => {
-      void scannerRef.current?.start();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [tab]);
+    if (tab !== "scan") return;
+    requestCameraScan();
+  }, [tab, requestCameraScan]);
 
   const pendingCount = queued.filter((item) => item.status === "pending").length;
   const failedCount = queued.filter((item) => item.status === "failed").length;
@@ -492,7 +487,8 @@ export function BundleInventoryPanel({ token }: { token: string }) {
             variant={tab === key ? "primary" : "secondary"}
             onClick={() => {
               if (key === "scan") {
-                openScanTab();
+                if (tab === "scan") requestCameraScan();
+                else openScanTab();
                 return;
               }
               void scannerRef.current?.stop();
@@ -510,41 +506,30 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
       {tab === "scan" && (
         <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-          <Card>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">QR scanner</h3>
-                <p className="text-sm text-slate-500">Open the camera, point at a bundle QR, and the lookup runs automatically.</p>
-              </div>
-              <Button variant="secondary" onClick={() => void scannerRef.current?.start()}>
-                <Camera className="h-4 w-4" />
-                Open camera
-              </Button>
-            </div>
-
-            <div className="mt-4">
+          <Card className="bundle-scan-card">
+            <div className="bundle-scan-camera">
               <BundleQrScanner
                 ref={scannerRef}
+                active={tab === "scan"}
+                startToken={scanStartToken}
                 paused={scanMutation.isPending}
                 onScan={handleScanSubmit}
-                onError={(message) => {
-                  setScanError(message);
-                  notify("error", message);
-                }}
               />
             </div>
 
-            <div className="mt-4">
-              <button
-                type="button"
-                className="text-sm font-semibold text-emerald-700"
-                onClick={() => setManualEntryOpen((value) => !value)}
-              >
-                {manualEntryOpen ? "Hide manual entry" : "Enter code manually"}
-              </button>
-            </div>
+            {scanMutation.isPending && (
+              <p className="bundle-scan-status">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Looking up bundle...
+              </p>
+            )}
 
-            {manualEntryOpen && (
+            {scanLookupMessage && !scanMutation.isPending && (
+              <p className="bundle-scan-status">{scanLookupMessage}</p>
+            )}
+
+            <details className="bundle-scan-manual">
+              <summary>Enter code manually</summary>
               <form
                 className="mt-3 flex flex-col gap-3 sm:flex-row"
                 onSubmit={(event) => {
@@ -564,15 +549,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   Lookup
                 </Button>
               </form>
-            )}
-
-            {scanMutation.isPending && (
-              <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Looking up bundle...
-              </p>
-            )}
-            {scanError && <p className="mt-3 text-sm text-rose-600">{scanError}</p>}
+            </details>
             {scanResult && (
               <div className="mt-6 grid gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[120px_1fr]">
                 {scanResult.bundle.qrImageUrl && <img src={scanResult.bundle.qrImageUrl} alt="QR" className="h-28 w-28 rounded-xl bg-white p-2" />}

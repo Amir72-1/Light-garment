@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { BundleInventoryPanel } from "./bundleInventory";
+import { primeBundleCamera } from "./bundleQrScanner";
 import { scanEmployeeIdSides } from "./idOcr";
 import { Badge, Button, Card, Field, Input, Select, Textarea, cn } from "./components/ui";
 import {
@@ -1601,7 +1602,7 @@ function Inventory({ token }: { token: string }) {
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap gap-2">
-        <Button variant={inventoryTab === "bundles" ? "primary" : "secondary"} onClick={() => setInventoryTab("bundles")}>
+        <Button variant={inventoryTab === "bundles" ? "primary" : "secondary"} onClick={() => { void primeBundleCamera(); setInventoryTab("bundles"); }}>
           <ScanLine className="h-4 w-4" />
           QR bundle inventory
         </Button>

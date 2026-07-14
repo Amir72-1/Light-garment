@@ -376,6 +376,10 @@ export async function createApp() {
   const app = express();
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+  app.use((_request, response, next) => {
+    response.setHeader("Permissions-Policy", "camera=(self)");
+    next();
+  });
   app.use(cors({ origin: process.env.CORS_ORIGIN?.split(",") || true, credentials: true }));
   app.use(express.json({ limit: "2mb" }));
   app.use("/uploads", express.static(uploadDir));

@@ -174,46 +174,36 @@ html.dark .action-row::-webkit-scrollbar-thumb {
 
 .bundle-qr-scanner {
   position: relative;
+  display: block;
   width: 100%;
   overflow: hidden;
+  border: 0;
+  padding: 0;
   border-radius: 1rem;
   background: #020617;
-  min-height: clamp(280px, 62vw, 420px);
+  min-height: clamp(320px, 72vw, 520px);
 }
 
 .bundle-qr-scanner__viewport {
   width: 100%;
-  min-height: clamp(280px, 62vw, 420px);
+  min-height: clamp(320px, 72vw, 520px);
 }
 
 .bundle-qr-scanner__viewport video {
   display: block;
   width: 100% !important;
   height: auto !important;
-  min-height: clamp(280px, 62vw, 420px);
+  min-height: clamp(320px, 72vw, 520px);
   object-fit: cover;
   border-radius: 1rem;
 }
 
-.bundle-qr-scanner__overlay {
+.bundle-qr-scanner__pulse {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.72));
-}
-
-.bundle-qr-scanner__overlay--dim {
-  background: rgba(248, 250, 252, 0.94);
-}
-
-.bundle-qr-scanner__start {
-  min-height: 3.25rem;
-  padding-inline: 1.5rem;
-  font-size: 1rem;
+  background: radial-gradient(circle at center, rgba(16, 185, 129, 0.18), rgba(2, 6, 23, 0.92) 68%);
+  animation: bundle-qr-pulse 1.4s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .bundle-qr-scanner__hint {
@@ -221,13 +211,65 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 0.85rem 1rem;
+  padding: 0.9rem 1rem;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: #ffffff;
-  background: linear-gradient(180deg, rgba(2, 6, 23, 0), rgba(2, 6, 23, 0.82));
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0), rgba(2, 6, 23, 0.84));
   pointer-events: none;
+}
+
+.bundle-scan-card {
+  padding: 0.75rem;
+}
+
+.bundle-scan-camera {
+  width: 100%;
+}
+
+.bundle-scan-status {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.bundle-scan-manual {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.bundle-scan-manual summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #047857;
+}
+
+@media (max-width: 767px) {
+  .bundle-scan-card {
+    padding: 0.5rem;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .bundle-qr-scanner,
+  .bundle-qr-scanner__viewport,
+  .bundle-qr-scanner__viewport video {
+    min-height: min(72vh, 640px);
+    border-radius: 1.25rem;
+  }
+}
+
+@keyframes bundle-qr-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 @media print {
