@@ -33,6 +33,7 @@ import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payr
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { BundleInventoryService } from "./bundleInventoryService.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
+import { resolvePooledDatabaseUrl } from "../shared/databaseUrl.js";
 
 type ListQuery = {
   search?: string;
@@ -293,7 +294,7 @@ export class PrismaRepository {
   static create() {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is required for PrismaRepository");
-    const adapter = new PrismaPg({ connectionString });
+    const adapter = new PrismaPg({ connectionString: resolvePooledDatabaseUrl(connectionString) });
     return new PrismaRepository(new PrismaClient({ adapter }));
   }
 
