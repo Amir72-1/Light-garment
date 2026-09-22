@@ -243,6 +243,15 @@ const bundleVariantSchema = z.object({
   piecesPerBundle: z.coerce.number().int().min(1)
 });
 
+const mixedBundleItemSchema = z.object({
+  color: z.string().min(1),
+  colorId: z.string().optional(),
+  colorCode: z.string().min(2).max(8),
+  size: z.string().min(1),
+  sizeId: z.string().optional(),
+  pieces: z.coerce.number().int().min(1)
+});
+
 const registerBundleSchema = z.object({
   productName: z.string().min(2),
   style: z.string().min(1),
@@ -256,14 +265,21 @@ const registerBundleSchema = z.object({
   bundleQuantity: z.coerce.number().int().min(1).optional(),
   piecesPerBundle: z.coerce.number().int().min(1).optional(),
   variants: z.array(bundleVariantSchema).min(1).optional(),
+  mixedItems: z.array(mixedBundleItemSchema).min(1).optional(),
+  registrationMode: z.enum(["separate", "mixed"]).optional(),
   unitCost: z.coerce.number().nonnegative(),
   sellingPrice: z.coerce.number().nonnegative(),
   warehouseId: z.string(),
   storageLocationId: z.string().optional(),
   images: z.array(z.string()).optional(),
   skuPrefix: z.string().optional()
-}).refine((value) => Boolean(value.variants?.length || (value.color && value.size && value.bundleQuantity && value.piecesPerBundle)), {
-  message: "Provide at least one color/size variant"
+}).refine((value) => Boolean(
+  value.mixedItems?.length
+  || value.registrationMode === "mixed"
+  || value.variants?.length
+  || (value.color && value.size && value.bundleQuantity && value.piecesPerBundle)
+), {
+  message: "Provide at least one color/size variant or mixed assortment line"
 });
 
 const createColorSchema = z.object({
@@ -279,6 +295,8 @@ const scanBundleSchema = z.object({
 const moveBundleSchema = z.object({
   bundleId: z.string(),
   quantity: z.coerce.number().int().positive(),
+  itemColor: z.string().optional(),
+  itemSize: z.string().optional(),
   toWarehouseId: z.string().optional(),
   toLocationId: z.string().optional(),
   type: stockTransactionTypeSchema,
@@ -358,6 +376,10 @@ export async function createApp() {
   const app = express();
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+  app.use((_request, response, next) => {
+    response.setHeader("Permissions-Policy", "camera=(self)");
+    next();
+  });
   app.use(cors({ origin: process.env.CORS_ORIGIN?.split(",") || true, credentials: true }));
   app.use(express.json({ limit: "2mb" }));
   app.use("/uploads", express.static(uploadDir));

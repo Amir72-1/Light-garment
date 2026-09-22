@@ -840,4 +840,58 @@ describe("Bundle inventory API", () => {
     expect(remaining.body.some((bundle: { id: string }) => bundle.id === registered.body[0].id)).toBe(false);
     expect(remaining.body.some((bundle: { id: string }) => bundle.id === registered.body[1].id)).toBe(true);
   });
+
+  it("registers mixed assortment bundles with one QR per bundle", async () => {
+    const { app, token } = await login();
+    const metadata = await request(app).get("/api/bundles/metadata").set("Authorization", `Bearer ${token}`).expect(200);
+    const warehouseId = metadata.body.warehouses[0].id as string;
+
+    const registered = await request(app)
+      .post("/api/bundles/register")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        productName: "Assorted Polo",
+        style: "Classic",
+        registrationMode: "mixed",
+        bundleQuantity: 1,
+        mixedItems: [
+          { color: "Blue", colorCode: "BLU", size: "L", pieces: 10 },
+          { color: "Red", colorCode: "RED", size: "M", pieces: 15 }
+        ],
+        unitCost: 100,
+        sellingPrice: 220,
+        warehouseId
+      })
+      .expect(201);
+
+    expect(registered.body).toHaveLength(1);
+    expect(registered.body[0].isMixed).toBe(true);
+    expect(registered.body[0].remainingPieces).toBe(25);
+    expect(registered.body[0].items).toHaveLength(2);
+
+    const scanned = await request(app)
+      .post("/api/bundles/scan")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ code: registered.body[0].qrPayload })
+      .expect(200);
+
+    expect(scanned.body.isMixed).toBe(true);
+    expect(scanned.body.items).toHaveLength(2);
+
+    const moved = await request(app)
+      .post("/api/bundles/move")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        bundleId: registered.body[0].id,
+        quantity: 5,
+        itemColor: "Blue",
+        itemSize: "L",
+        type: "Sale",
+        reason: "Test sale"
+      })
+      .expect(201);
+
+    expect(moved.body.source.remainingPieces).toBe(20);
+    expect(moved.body.source.items.find((item: { color: string; size: string }) => item.color === "Blue" && item.size === "L").remaining).toBe(5);
+  });
 });
