@@ -189,15 +189,6 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   min-height: clamp(320px, 72vw, 520px);
 }
 
-.bundle-qr-scanner__viewport video {
-  display: block;
-  width: 100% !important;
-  height: auto !important;
-  min-height: clamp(320px, 72vw, 520px);
-  object-fit: cover;
-  border-radius: 1rem;
-}
-
 .bundle-qr-scanner__pulse {
   position: absolute;
   inset: 0;
@@ -225,7 +216,34 @@ html.dark .action-row::-webkit-scrollbar-thumb {
 }
 
 .bundle-scan-camera {
+  position: relative;
   width: 100%;
+}
+
+.bundle-scan-placeholder {
+  display: flex;
+  min-height: clamp(320px, 72vw, 520px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  background: #020617;
+  color: #ffffff;
+}
+
+.bundle-qr-scanner__viewport > div,
+.bundle-qr-scanner__viewport > div > div {
+  width: 100% !important;
+  min-height: inherit;
+}
+
+.bundle-qr-scanner__viewport video {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: inherit;
+  object-fit: cover;
+  border-radius: 1rem;
 }
 
 .bundle-scan-status {

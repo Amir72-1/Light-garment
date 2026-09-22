@@ -1,23 +1,20 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useId, useRef, useState } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 export type BundleQrScannerHandle = {
-  primeCamera: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
 type BundleQrScannerProps = {
-  active: boolean;
-  startToken: number;
+  visible: boolean;
   onScan: (code: string) => void;
   paused?: boolean;
 };
 
 const CAMERA_CONSTRAINTS: MediaStreamConstraints[] = [
-  { video: { facingMode: { exact: "environment" } }, audio: false },
-  { video: { facingMode: "environment" }, audio: false },
   { video: { facingMode: { ideal: "environment" } }, audio: false },
+  { video: { facingMode: "environment" }, audio: false },
   { video: true, audio: false }
 ];
 
@@ -34,13 +31,25 @@ export async function primeBundleCamera() {
   }
 }
 
-function scanBoxSize(viewfinderWidth: number, viewfinderHeight: number) {
-  const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.84);
-  return { width: edge, height: edge };
+async function resolveBackCameraId() {
+  try {
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras.length) return { facingMode: "environment" as const };
+    const backCamera = cameras.find((camera) => /back|rear|environment|wide/i.test(camera.label));
+    if (backCamera) return backCamera.id;
+    return cameras[cameras.length - 1]?.id ?? { facingMode: "environment" as const };
+  } catch {
+    return { facingMode: "environment" as const };
+  }
+}
+
+function scanRegion(viewfinderWidth: number, viewfinderHeight: number) {
+  const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.88);
+  return { width: Math.max(edge, 240), height: Math.max(edge, 240) };
 }
 
 export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScannerProps>(function BundleQrScanner(
-  { active, startToken, onScan, paused = false },
+  { visible, onScan, paused = false },
   ref
 ) {
   const reactId = useId().replace(/:/g, "");
@@ -48,6 +57,7 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const startingRef = useRef(false);
   const scanLockRef = useRef(false);
+  const lastScanRef = useRef("");
   const retryTimerRef = useRef<number | null>(null);
   const onScanRef = useRef(onScan);
   const [cameraLive, setCameraLive] = useState(false);
@@ -80,7 +90,7 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   }, [clearRetry]);
 
   const startScanner = useCallback(async () => {
-    if (!active || startingRef.current) return;
+    if (!visible || startingRef.current) return;
     if (scannerRef.current?.isScanning) {
       setCameraLive(true);
       return;
@@ -88,36 +98,46 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
 
     startingRef.current = true;
     clearRetry();
+    setCameraLive(false);
 
     try {
-      const scanner = new Html5Qrcode(elementId, { verbose: false });
+      if (scannerRef.current) {
+        await stopScanner();
+      }
+
+      const scanner = new Html5Qrcode(elementId, {
+        verbose: false,
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+      });
       scannerRef.current = scanner;
+      const cameraConfig = await resolveBackCameraId();
 
       await scanner.start(
-        { facingMode: "environment" },
+        cameraConfig,
         {
-          fps: 18,
-          qrbox: scanBoxSize,
-          aspectRatio: window.innerWidth < 768 ? 1 : 1.333,
+          fps: 12,
+          qrbox: scanRegion,
           disableFlip: false,
           videoConstraints: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            width: { min: 640, ideal: 1280 },
+            height: { min: 480, ideal: 720 }
           }
         },
         (decoded) => {
           const code = decoded.trim();
-          if (!code || scanLockRef.current) return;
+          if (!code || scanLockRef.current || code === lastScanRef.current) return;
           scanLockRef.current = true;
+          lastScanRef.current = code;
           onScanRef.current(code);
           scanner.pause(true);
           window.setTimeout(() => {
             scanLockRef.current = false;
+            lastScanRef.current = "";
             if (scannerRef.current?.isScanning && !paused) {
               scanner.resume().catch(() => undefined);
             }
-          }, 1000);
+          }, 1500);
         },
         () => undefined
       );
@@ -128,34 +148,23 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
       retryTimerRef.current = window.setTimeout(() => {
         startingRef.current = false;
         void startScanner();
-      }, 900);
+      }, 1200);
       return;
     } finally {
       startingRef.current = false;
     }
-  }, [active, clearRetry, elementId, paused, stopScanner]);
-
-  const primeAndStart = useCallback(async () => {
-    await primeBundleCamera();
-    await startScanner();
-  }, [startScanner]);
+  }, [clearRetry, elementId, paused, stopScanner, visible]);
 
   useImperativeHandle(ref, () => ({
-    primeCamera: primeBundleCamera,
-    start: primeAndStart,
+    start: startScanner,
     stop: stopScanner
-  }), [primeAndStart, stopScanner]);
+  }), [startScanner, stopScanner]);
 
   useEffect(() => {
-    if (!active) {
+    if (!visible) {
       void stopScanner();
     }
-  }, [active, stopScanner]);
-
-  useEffect(() => {
-    if (!active) return;
-    void primeAndStart();
-  }, [active, startToken, primeAndStart]);
+  }, [visible, stopScanner]);
 
   useEffect(() => {
     if (!scannerRef.current?.isScanning) return;
@@ -167,17 +176,10 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
     void stopScanner();
   }, [stopScanner]);
 
+  if (!visible) return null;
+
   return (
-    <div
-      className="bundle-qr-scanner"
-      onClick={() => {
-        if (!cameraLive) void primeAndStart();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !cameraLive) void primeAndStart();
-      }}
-      role="presentation"
-    >
+    <div className="bundle-qr-scanner">
       <div id={elementId} className="bundle-qr-scanner__viewport" />
       {!cameraLive && <div className="bundle-qr-scanner__pulse" aria-hidden />}
       <div className="bundle-qr-scanner__hint">

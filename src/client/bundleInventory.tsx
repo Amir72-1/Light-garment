@@ -129,11 +129,11 @@ export function BundleInventoryPanel({ token }: { token: string }) {
   const queryClient = useQueryClient();
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<BundleQrScannerHandle>(null);
-  const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("scan");
+  const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("bundles");
   const [search, setSearch] = useState("");
   const [scanCode, setScanCode] = useState("");
   const [scanResult, setScanResult] = useState<BundleScanResult | null>(null);
-  const [scanStartToken, setScanStartToken] = useState(0);
+  const [cameraActive, setCameraActive] = useState(false);
   const [scanLookupMessage, setScanLookupMessage] = useState<string | null>(null);
   const [selectedBundle, setSelectedBundle] = useState<InventoryBundle | null>(null);
   const [moveQty, setMoveQty] = useState(1);
@@ -415,24 +415,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
       const trimmed = code.trim();
       if (!trimmed) return;
       setScanCode("");
+      setScanLookupMessage(null);
       scanMutation.mutate(trimmed);
     },
     [scanMutation]
   );
 
-  const requestCameraScan = useCallback(() => {
-    setScanStartToken((value) => value + 1);
-    void primeBundleCamera();
-  }, []);
-
-  const openScanTab = useCallback(() => {
+  const openCameraScan = useCallback(async () => {
+    await primeBundleCamera();
     setTab("scan");
+    setCameraActive(true);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    await scannerRef.current?.stop();
+    await scannerRef.current?.start();
   }, []);
-
-  useEffect(() => {
-    if (tab !== "scan") return;
-    requestCameraScan();
-  }, [tab, requestCameraScan]);
 
   const pendingCount = queued.filter((item) => item.status === "pending").length;
   const failedCount = queued.filter((item) => item.status === "failed").length;
@@ -487,10 +485,10 @@ export function BundleInventoryPanel({ token }: { token: string }) {
             variant={tab === key ? "primary" : "secondary"}
             onClick={() => {
               if (key === "scan") {
-                if (tab === "scan") requestCameraScan();
-                else openScanTab();
+                void openCameraScan();
                 return;
               }
+              setCameraActive(false);
               void scannerRef.current?.stop();
               setTab(key);
             }}
@@ -510,11 +508,16 @@ export function BundleInventoryPanel({ token }: { token: string }) {
             <div className="bundle-scan-camera">
               <BundleQrScanner
                 ref={scannerRef}
-                active={tab === "scan"}
-                startToken={scanStartToken}
+                visible={cameraActive}
                 paused={scanMutation.isPending}
                 onScan={handleScanSubmit}
               />
+              {!cameraActive && (
+                <div className="bundle-scan-placeholder">
+                  <ScanLine className="h-10 w-10 text-emerald-600" />
+                  <p className="mt-3 text-sm font-semibold text-slate-700">Tap Scan to open your camera</p>
+                </div>
+              )}
             </div>
 
             {scanMutation.isPending && (
