@@ -542,12 +542,44 @@ h3 {
 }
 
 .product-card {
-  padding: 36px;
+  overflow: hidden;
+  padding: 0;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.product-photo-wrap {
+  position: relative;
+  margin: 0;
+}
+
+.product-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--cream);
+}
+
+.product-photo-wrap figcaption {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  padding: 6px 12px;
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 252, 247, 0.9);
+  border-radius: 999px;
+}
+
+.product-body {
+  padding: 28px 32px 32px;
 }
 
 .product-card:hover {
