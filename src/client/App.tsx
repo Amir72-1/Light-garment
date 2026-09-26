@@ -301,7 +301,7 @@ function Employees({ token }: { token: string }) {
                   <Avatar employee={employee} />
                   <div>
                     <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
-                    <p className="text-sm text-slate-500">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
+                    <p className="text-sm text-slate-500">{employee.position}{employee.machineNumber ? ` · Machine ${employee.machineNumber}` : ""} · {employee.department} · {currency(employee.salary)}</p>
                     <p className="text-sm text-slate-500">{employee.phoneNumber}</p>
                   </div>
                 </button>
@@ -361,7 +361,7 @@ function EmployeeProfileDialog({ employee, onClose }: { employee: Employee; onCl
         </div>
         <div className="mt-4 flex items-center gap-4"><Avatar employee={employee} large /><div><p className="font-black">{employee.fullName}</p><p className="text-sm text-slate-500">{employee.employeeCode}</p></div></div>
         <dl className="mt-4 grid gap-2 text-sm">
-          {Object.entries({ "Fayda number": employee.faydaNumber || "Not provided", Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
+          {Object.entries({ "Fayda number": employee.faydaNumber || "Not provided", Phone: employee.phoneNumber, Email: employee.email || "Not provided", Address: employee.address, Gender: employee.gender, Department: employee.department, Position: employee.position, "Machine number": employee.machineNumber || "Not assigned", Salary: currency(employee.salary), "Employment type": employee.employmentType, "Hire date": employee.hireDate, Status: employee.status }).map(([key, value]) => <div key={key} className="flex justify-between gap-3 border-t py-2"><dt className="text-slate-500">{key}</dt><dd className="text-right font-semibold">{value}</dd></div>)}
         </dl>
       </Card>
     </div>
@@ -382,7 +382,7 @@ function EmployeeForm({ onSubmit, pending, error }: { onSubmit: (form: FormData,
         <p className="-mt-2 text-xs text-slate-500">Employees can be registered without an email address.</p>
         <Field label="Address"><Textarea name="address" rows={2} required /></Field>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Gender"><Select name="gender" required><option>Female</option><option>Male</option><option>Other</option></Select></Field><Field label="Date of birth"><Input name="dateOfBirth" placeholder="YYYY-MM-DD" required /></Field></div>
-        <div className="grid gap-3 md:grid-cols-2"><Field label="Position"><Input name="position" required placeholder="Tailor" /></Field><Field label="Department"><Select name="department" required><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option></Select></Field></div>
+        <div className="grid gap-3 md:grid-cols-3"><Field label="Position"><Input name="position" required placeholder="Tailor" /></Field><Field label="Machine number (optional)"><Input name="machineNumber" placeholder="e.g. SM-01" /></Field><Field label="Department"><Select name="department" required><option>Production</option><option>Sales</option><option>Admin</option><option>Store</option></Select></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Salary"><Input name="salary" type="number" required /></Field><Field label="Employment type"><Select name="employmentType" required><option>Full-time</option><option>Part-time</option><option>Contract</option></Select></Field></div>
         <div className="grid gap-3 md:grid-cols-2"><Field label="Hire date"><Input name="hireDate" placeholder="YYYY-MM-DD" required /></Field><Field label="Status"><Select name="status"><option>Active</option><option>Inactive</option></Select></Field></div>
         <Field label="Profile picture"><Input name="profilePicture" type="file" accept="image/*" /></Field>

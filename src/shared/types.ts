@@ -38,6 +38,7 @@ export interface Employee {
   gender: Gender;
   dateOfBirth: string;
   position: string;
+  machineNumber?: string;
   department: Department;
   salary: number;
   employmentType: EmploymentType;

@@ -177,6 +177,7 @@ export class DemoRepository {
         gender: "Male",
         dateOfBirth: "1994-06-24",
         position: "Senior Tailor",
+        machineNumber: "SM-01",
         department: "Production",
         salary: 18000,
         employmentType: "Full-time",
@@ -338,7 +339,7 @@ export class DemoRepository {
     let rows = this.employees.filter((employee) => !employee.archivedAt);
     if (query.search) {
       const search = query.search.toLowerCase();
-      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
+      rows = rows.filter((employee) => [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.machineNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search)));
     }
     if (query.department) rows = rows.filter((employee) => employee.department === query.department);
     if (query.position) rows = rows.filter((employee) => employee.position.toLowerCase().includes(query.position!.toLowerCase()));

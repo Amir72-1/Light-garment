@@ -67,6 +67,7 @@ const employeeSchema = z.object({
   gender: z.enum(["Male", "Female", "Other"]),
   dateOfBirth: dateField,
   position: z.string().min(2),
+  machineNumber: z.string().trim().max(50).optional().or(z.literal("")),
   department: z.enum(["Production", "Sales", "Admin", "Store"]),
   salary: z.coerce.number().nonnegative(),
   employmentType: z.enum(["Full-time", "Part-time", "Contract"]),
@@ -294,6 +295,7 @@ export async function createApp() {
     const employee = await repository.createEmployee({
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
+      machineNumber: parsed.machineNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
     });
@@ -314,6 +316,7 @@ export async function createApp() {
     const employee = await repository.updateEmployee(String(request.params.id), {
       ...parsed,
       faydaNumber: parsed.faydaNumber || undefined,
+      machineNumber: parsed.machineNumber || undefined,
       email: parsed.email || undefined,
       profileImageUrl: request.file ? `/uploads/${request.file.filename}` : undefined
     });

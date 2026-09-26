@@ -136,6 +136,7 @@ model Employee {
   gender         Gender
   dateOfBirth    DateTime
   position       String
+  machineNumber  String?
   department     Department
   salary         Decimal         @db.Decimal(12, 2)
   employmentType EmploymentType

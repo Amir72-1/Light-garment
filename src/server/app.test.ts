@@ -36,6 +36,7 @@ describe("Light Garment ERP API", () => {
       .field("gender", "Other")
       .field("dateOfBirth", "1999-01-01")
       .field("position", "Tailor")
+      .field("machineNumber", "SM-12")
       .field("department", "Production")
       .field("salary", "12000")
       .field("employmentType", "Full-time")
@@ -45,6 +46,7 @@ describe("Light Garment ERP API", () => {
 
     expect(create.body.employeeCode).toMatch(/^LGM-EMP-/);
     expect(create.body.faydaNumber).toBe("FIN-TEST-0001");
+    expect(create.body.machineNumber).toBe("SM-12");
 
     const checkIn = await request(app)
       .post(`/api/attendance/${create.body.id}/check-in`)
