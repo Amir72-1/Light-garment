@@ -35,6 +35,7 @@ import {
 import type { AttendanceRecord, AttendanceSettings, Department, Employee, EmploymentType, Gender, ManagedUser, Paginated, PayrollRecord, PayrollSettings, Product, RawMaterial, RawMaterialMovement, RoleName, SalaryHistoryEntry, Sale, UserSession, YearlyBreakEligibility } from "../shared/types";
 import type { TranslationKey } from "../shared/i18n";
 import { userPreferencesFromRecord } from "../shared/preferences";
+import { inclusiveDayCount } from "../shared/hr";
 import { PreferencesProvider, usePreferences } from "./preferences";
 
 type ModuleKey = "dashboard" | "employees" | "attendance" | "payroll" | "inventory" | "sales" | "production" | "reports" | "settings";
@@ -699,16 +700,18 @@ function YearlyBreakPanel({ token, isOwner }: { token: string; isOwner: boolean 
                     {row.eligible ? (
                       registeringId === row.employee.id ? (
                         <form className="grid min-w-[320px] gap-2" onSubmit={(event) => { event.preventDefault(); registerBreak.mutate({ employeeId: row.employee.id }); }}>
-                          <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required />
-                          <Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} required />
+                          <Field label="Start date"><Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
+                          <Field label="End date"><Input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} required /></Field>
                           <Input placeholder="Notes (optional)" value={notes} onChange={(event) => setNotes(event.target.value)} />
+                          <p className="text-xs text-slate-500">Up to {row.entitlementDays} days{startDate && endDate && endDate >= startDate ? ` · selected ${inclusiveDayCount(startDate, endDate)} days` : ""}</p>
+                          {registerBreak.error && <p className="rounded-xl bg-rose-50 p-2 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{registerBreak.error.message}</p>}
                           <div className="action-row">
                             <Button type="submit" disabled={registerBreak.isPending}>{registerBreak.isPending ? "Saving..." : "Save break"}</Button>
-                            <Button type="button" variant="secondary" onClick={() => setRegisteringId(null)}>Cancel</Button>
+                            <Button type="button" variant="secondary" onClick={() => { registerBreak.reset(); setRegisteringId(null); }}>Cancel</Button>
                           </div>
                         </form>
                       ) : (
-                        <Button variant="secondary" onClick={() => setRegisteringId(row.employee.id)}>Register break</Button>
+                        <Button variant="secondary" onClick={() => { registerBreak.reset(); setRegisteringId(row.employee.id); }}>Register break</Button>
                       )
                     ) : (
                       <span className="text-xs text-slate-500">—</span>
