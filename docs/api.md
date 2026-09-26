@@ -40,7 +40,7 @@ Owner and HR/Admin have full attendance access. Manager can view and check emplo
 - `GET /inventory` - Stock movement history.
 - `POST /inventory/movements` - Create `Stock in`, `Stock out`, `Transfer`, or `Adjustment` movement.
 - `GET /raw-materials` - Fabric, thread, buttons, labels, and packaging stock.
-- `POST /raw-materials` - Register a raw material with `{ name, category, unit, quantity, reorderLevel, unitCost }`.
+- `POST /raw-materials` - Register a raw material with `{ name, category, unit, quantity, pileCount, reorderLevel, unitCost }`.
 - `GET /raw-materials/history` - Durable raw material usage history.
 - `POST /raw-materials/:id/use` - Record raw material usage with `{ quantity, reference?, note? }`.
 

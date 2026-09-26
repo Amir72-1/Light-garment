@@ -28,6 +28,7 @@ INITIAL_OWNER_PASSWORD=<optional-owner-password>
 ```
 
 Do not deploy real usage with `DEMO_MODE=true`; demo mode is in-memory and resets on restart.
+If the initial owner variables are omitted and no Owner user exists, the seed creates `amir_kiar2001@yahoo.com` with password `Amirkiar1`.
 
 If the initial owner variables are omitted and no Owner user exists, the seed creates `amir_kiar2001@yahoo.com` with password `Amirkiar1`.
 

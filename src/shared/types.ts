@@ -135,6 +135,7 @@ export interface RawMaterial {
   category: "Fabric" | "Thread" | "Buttons" | "Labels" | "Packaging";
   unit: string;
   quantity: number;
+  pileCount: number;
   reorderLevel: number;
   unitCost: number;
 }
