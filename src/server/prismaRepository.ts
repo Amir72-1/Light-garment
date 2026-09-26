@@ -28,7 +28,7 @@ import type {
   YearlyBreak,
   YearlyBreakEligibility
 } from "../shared/types.js";
-import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
+import { datesBetween, inclusiveDayCount, yearlyBreakDays, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { BundleInventoryService } from "./bundleInventoryService.js";
@@ -256,6 +256,7 @@ export class PrismaRepository {
   private attendanceConfig: AttendanceSettings = { ...defaultAttendanceSettings };
   private payrollSettingsConfig: PayrollSettings = { ...defaultPayrollSettings };
   private attendanceConfigLoaded = false;
+  private payrollSettingsLoaded = false;
   private bundleService: BundleInventoryService;
   private bundleDefaultsReady = false;
 
@@ -288,6 +289,15 @@ export class PrismaRepository {
       create: { key: "attendance", value },
       update: { value }
     });
+  }
+
+  private async ensurePayrollSettings() {
+    if (this.payrollSettingsLoaded) return;
+    const row = await this.prisma.appSetting.findUnique({ where: { key: "payroll" } });
+    if (row?.value && typeof row.value === "object" && !Array.isArray(row.value)) {
+      this.payrollSettingsConfig = { ...defaultPayrollSettings, ...(row.value as Partial<PayrollSettings>) };
+    }
+    this.payrollSettingsLoaded = true;
   }
 
   static create() {
@@ -712,11 +722,19 @@ export class PrismaRepository {
   }
 
   async payrollSettings() {
+    await this.ensurePayrollSettings();
     return this.payrollSettingsConfig;
   }
 
   async updatePayrollSettings(settings: PayrollSettings) {
+    const value = { ...settings };
+    await this.prisma.appSetting.upsert({
+      where: { key: "payroll" },
+      create: { key: "payroll", value },
+      update: { value }
+    });
     this.payrollSettingsConfig = settings;
+    this.payrollSettingsLoaded = true;
     return this.payrollSettingsConfig;
   }
 
@@ -817,6 +835,7 @@ export class PrismaRepository {
 
   private async calculatePayroll(employee: Employee, month: number, year: number, existing?: Partial<PayrollRecord>) {
     await this.ensureAttendanceConfig();
+    await this.ensurePayrollSettings();
     const key = monthKey(month, year);
     const rows = await this.prisma.attendance.findMany({ where: { employeeId: employee.id, date: { startsWith: key } }, include: { employee: true } });
     const attendance = rows.map((row) => attendanceFromRow(row, this.attendanceConfig));
@@ -1084,7 +1103,8 @@ export class PrismaRepository {
   async listYearlyBreakEligibility(year: number) {
     const [employees, breaks] = await Promise.all([
       this.prisma.employee.findMany({ where: { archivedAt: null }, orderBy: { fullName: "asc" } }),
-      this.prisma.yearlyBreak.findMany({ where: { year } })
+      this.prisma.yearlyBreak.findMany({ where: { year } }),
+      this.ensurePayrollSettings()
     ]);
     const settings = this.payrollSettingsConfig;
     return employees.map((row) => {
@@ -1114,6 +1134,7 @@ export class PrismaRepository {
   async registerYearlyBreak(employeeId: string, input: { year: number; startDate: string; endDate: string; notes?: string }, registeredByUserId?: string) {
     const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return null;
+    await this.ensurePayrollSettings();
     const existing = await this.prisma.yearlyBreak.findUnique({ where: { employeeId_year: { employeeId, year: input.year } } });
     const eligibility = yearlyBreakEligibility({
       employee: employeeFromDb(employee),
@@ -1123,22 +1144,19 @@ export class PrismaRepository {
     });
     if (!eligibility.eligible) throw new Error(eligibility.reason || "Employee is not eligible for yearly break");
 
-    const days = inclusiveDayCount(input.startDate, input.endDate);
-    if (days > this.payrollSettingsConfig.yearlyBreakEntitlementDays) {
-      throw new Error(`Yearly break cannot exceed ${this.payrollSettingsConfig.yearlyBreakEntitlementDays} days.`);
-    }
-
-    const breakRow = await this.prisma.yearlyBreak.create({
-      data: {
-        employeeId,
-        year: input.year,
-        startDate: new Date(input.startDate),
-        endDate: new Date(input.endDate),
-        days,
-        status: "SCHEDULED",
-        notes: input.notes || null,
-        registeredByUserId: registeredByUserId ?? null
-      },
+    const days = yearlyBreakDays(input.startDate, input.endDate, this.payrollSettingsConfig.yearlyBreakEntitlementDays);
+    const data = {
+      startDate: new Date(input.startDate),
+      endDate: new Date(input.endDate),
+      days,
+      status: "SCHEDULED" as const,
+      notes: input.notes || null,
+      registeredByUserId: registeredByUserId ?? null
+    };
+    const breakRow = await this.prisma.yearlyBreak.upsert({
+      where: { employeeId_year: { employeeId, year: input.year } },
+      create: { employeeId, year: input.year, ...data },
+      update: data,
       include: { registeredBy: true }
     });
 
