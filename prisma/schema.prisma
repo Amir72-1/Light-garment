@@ -220,6 +220,7 @@ model RawMaterial {
   category       RawMaterialCategory
   unit           String
   quantity       Decimal             @db.Decimal(12, 2)
+  pileCount      Int                 @default(1)
   reorderLevel   Decimal             @db.Decimal(12, 2)
   unitCost        Decimal             @db.Decimal(12, 2)
   supplierId     String?

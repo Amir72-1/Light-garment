@@ -114,6 +114,7 @@ const rawMaterialSchema = z.object({
   category: z.enum(["Fabric", "Thread", "Buttons", "Labels", "Packaging"]),
   unit: z.string().min(1),
   quantity: z.coerce.number().nonnegative(),
+  pileCount: z.coerce.number().int().positive().default(1),
   reorderLevel: z.coerce.number().nonnegative(),
   unitCost: z.coerce.number().nonnegative()
 });

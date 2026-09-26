@@ -135,9 +135,9 @@ async function main() {
   });
 
   const rawMaterials = [
-    { id: "seed-raw-cotton-fabric", name: "Cotton Fabric Roll", category: "FABRIC", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95, supplierId: supplier.id },
-    { id: "seed-raw-white-thread", name: "White Thread", category: "THREAD", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18, supplierId: supplier.id },
-    { id: "seed-raw-pearl-buttons", name: "Pearl Buttons", category: "BUTTONS", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5, supplierId: supplier.id }
+    { id: "seed-raw-cotton-fabric", name: "Cotton Fabric Roll", category: "FABRIC", unit: "meter", quantity: 520, pileCount: 4, reorderLevel: 120, unitCost: 95, supplierId: supplier.id },
+    { id: "seed-raw-white-thread", name: "White Thread", category: "THREAD", unit: "spool", quantity: 240, pileCount: 12, reorderLevel: 60, unitCost: 18, supplierId: supplier.id },
+    { id: "seed-raw-pearl-buttons", name: "Pearl Buttons", category: "BUTTONS", unit: "piece", quantity: 3000, pileCount: 2, reorderLevel: 800, unitCost: 1.5, supplierId: supplier.id }
   ] as const;
 
   for (const material of rawMaterials) {

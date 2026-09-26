@@ -727,7 +727,7 @@ export class PrismaRepository {
 
   async listRawMaterials() {
     const rows = await this.prisma.rawMaterial.findMany({ orderBy: { name: "asc" } });
-    return rows.map((row): RawMaterial => ({ id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) }));
+    return rows.map((row): RawMaterial => ({ id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), pileCount: row.pileCount, reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) }));
   }
 
   async createRawMaterial(input: Omit<RawMaterial, "id">) {
@@ -737,11 +737,12 @@ export class PrismaRepository {
         category: rawCategoryToDb[input.category] as any,
         unit: input.unit,
         quantity: input.quantity,
+        pileCount: input.pileCount,
         reorderLevel: input.reorderLevel,
         unitCost: input.unitCost
       }
     });
-    return { id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) };
+    return { id: row.id, name: row.name, category: rawCategoryFromDb[row.category], unit: row.unit, quantity: Number(row.quantity), pileCount: row.pileCount, reorderLevel: Number(row.reorderLevel), unitCost: Number(row.unitCost) };
   }
 
   async useRawMaterial(rawMaterialId: string, input: { quantity: number; reference?: string; note?: string }) {

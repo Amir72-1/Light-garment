@@ -259,11 +259,12 @@ describe("Light Garment ERP API", () => {
     const create = await request(app)
       .post("/api/raw-materials")
       .set("Authorization", `Bearer ${token}`)
-      .send({ name: "Test Denim Fabric", category: "Fabric", unit: "meter", quantity: 75, reorderLevel: 20, unitCost: 145 })
+      .send({ name: "Test Denim Fabric", category: "Fabric", unit: "meter", quantity: 75, pileCount: 3, reorderLevel: 20, unitCost: 145 })
       .expect(201);
 
     expect(create.body.name).toBe("Test Denim Fabric");
     expect(create.body.quantity).toBe(75);
+    expect(create.body.pileCount).toBe(3);
 
     const rows = await request(app).get("/api/raw-materials").set("Authorization", `Bearer ${token}`).expect(200);
     expect(rows.body.some((item: { name: string }) => item.name === "Test Denim Fabric")).toBe(true);

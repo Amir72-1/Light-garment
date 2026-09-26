@@ -237,10 +237,10 @@ export class DemoRepository {
     ];
 
     this.rawMaterials = [
-      { id: "raw_1", name: "Cotton Fabric Roll", category: "Fabric", unit: "meter", quantity: 520, reorderLevel: 120, unitCost: 95 },
-      { id: "raw_2", name: "White Thread", category: "Thread", unit: "spool", quantity: 240, reorderLevel: 60, unitCost: 18 },
-      { id: "raw_3", name: "Pearl Buttons", category: "Buttons", unit: "piece", quantity: 3000, reorderLevel: 800, unitCost: 1.5 },
-      { id: "raw_4", name: "Poly Mailer", category: "Packaging", unit: "piece", quantity: 450, reorderLevel: 500, unitCost: 2.2 }
+      { id: "raw_1", name: "Cotton Fabric Roll", category: "Fabric", unit: "meter", quantity: 520, pileCount: 4, reorderLevel: 120, unitCost: 95 },
+      { id: "raw_2", name: "White Thread", category: "Thread", unit: "spool", quantity: 240, pileCount: 12, reorderLevel: 60, unitCost: 18 },
+      { id: "raw_3", name: "Pearl Buttons", category: "Buttons", unit: "piece", quantity: 3000, pileCount: 2, reorderLevel: 800, unitCost: 1.5 },
+      { id: "raw_4", name: "Poly Mailer", category: "Packaging", unit: "piece", quantity: 450, pileCount: 3, reorderLevel: 500, unitCost: 2.2 }
     ];
 
     this.production = ["Fabric", "Cutting", "Sewing", "Printing", "Ironing", "Packaging", "Finished goods"].map((stage, index) => ({
