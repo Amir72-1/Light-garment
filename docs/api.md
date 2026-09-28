@@ -17,7 +17,7 @@ All routes except health, login, and password reset require `Authorization: Bear
 ## Employees and Attendance
 
 - `GET /employees?search=&department=&position=&page=&pageSize=&sortBy=&sortOrder=` - Paginated employee list.
-- `POST /employees` - Multipart employee registration with optional `profilePicture`, optional `email`, and optional `faydaNumber`.
+- `POST /employees` - Multipart employee registration with optional `profilePicture`, optional `email`, optional `faydaNumber`, and optional `machineNumber` (machine the employee operates).
 - `GET /employees/:id` - Employee profile.
 - `PUT /employees/:id` - Multipart employee update with optional `profilePicture`.
 - `DELETE /employees/:id` - Delete employee.

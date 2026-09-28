@@ -36,6 +36,7 @@ describe("Light Garment ERP API", () => {
       .field("gender", "Other")
       .field("dateOfBirth", "1999-01-01")
       .field("position", "Tailor")
+      .field("machineNumber", "SM-12")
       .field("department", "Production")
       .field("salary", "12000")
       .field("employmentType", "Full-time")
@@ -44,6 +45,7 @@ describe("Light Garment ERP API", () => {
       .expect(201);
 
     expect(create.body.employeeCode).toMatch(/^LGM-EMP-/);
+    expect(create.body.machineNumber).toBe("SM-12");
     expect(create.body.faydaNumber).toBe("FIN-TEST-0001");
 
     const checkIn = await request(app)
@@ -164,6 +166,7 @@ describe("Light Garment ERP API", () => {
       .field("gender", "Female")
       .field("dateOfBirth", "1992-02-02")
       .field("position", "Senior Clerk")
+      .field("machineNumber", "SM-21")
       .field("department", "Admin")
       .field("salary", "14000")
       .field("employmentType", "Full-time")
@@ -173,6 +176,7 @@ describe("Light Garment ERP API", () => {
 
     expect(update.body.fullName).toBe("Editable Employee Updated");
     expect(update.body.bankAccountNumber).toBe("NIB-1234567890");
+    expect(update.body.machineNumber).toBe("SM-21");
     expect(update.body.position).toBe("Senior Clerk");
   });
 

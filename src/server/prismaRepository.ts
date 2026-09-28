@@ -97,6 +97,7 @@ function employeeFromDb(row: any): Employee {
     gender: genderFromDb[row.gender],
     dateOfBirth: isoDate(row.dateOfBirth),
     position: row.position,
+    machineNumber: row.machineNumber ?? undefined,
     department: departmentFromDb[row.department],
     salary: Number(row.salary),
     employmentType: employmentFromDb[row.employmentType],
@@ -439,6 +440,7 @@ export class PrismaRepository {
         { employeeCode: { contains: query.search, mode: "insensitive" } },
         { faydaNumber: { contains: query.search, mode: "insensitive" } },
         { bankAccountNumber: { contains: query.search, mode: "insensitive" } },
+        { machineNumber: { contains: query.search, mode: "insensitive" } },
         { phoneNumber: { contains: query.search, mode: "insensitive" } },
         { email: { contains: query.search, mode: "insensitive" } }
       ];
@@ -487,6 +489,7 @@ export class PrismaRepository {
         gender: genderToDb[input.gender] as any,
         dateOfBirth: new Date(input.dateOfBirth),
         position: input.position,
+        machineNumber: input.machineNumber || null,
         department: departmentToDb[input.department] as any,
         salary: input.salary,
         employmentType: employmentToDb[input.employmentType] as any,
@@ -537,6 +540,7 @@ export class PrismaRepository {
         gender: input.gender ? genderToDb[input.gender] as any : undefined,
         dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : undefined,
         position: input.position,
+        machineNumber: input.machineNumber !== undefined ? input.machineNumber || null : undefined,
         department: input.department ? departmentToDb[input.department] as any : undefined,
         salary: input.salary,
         employmentType: input.employmentType ? employmentToDb[input.employmentType] as any : undefined,

@@ -493,7 +493,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
   const checkOut = useMutation({ mutationFn: (id: string) => api.checkOut(token, id), onSuccess: invalidate });
 
   const filteredArchived = (archivedEmployees.data ?? []).filter((employee) => {
-    const matchesSearch = !search || [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.bankAccountNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase()));
+    const matchesSearch = !search || [employee.fullName, employee.employeeCode, employee.faydaNumber ?? "", employee.bankAccountNumber ?? "", employee.machineNumber ?? "", employee.phoneNumber, employee.email ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase()));
     const matchesDepartment = !department || employee.department === department;
     return matchesSearch && matchesDepartment;
   });
@@ -541,7 +541,7 @@ function Employees({ token, role }: { token: string; role: RoleName }) {
                     <Avatar employee={employee} />
                     <div>
                       <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{employee.fullName}</h3><Badge>{employee.employeeCode}</Badge></div>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position} · {employee.department} · {currency(employee.salary)}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{employee.position}{employee.machineNumber ? ` · Machine ${employee.machineNumber}` : ""} · {employee.department} · {currency(employee.salary)}</p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{employee.phoneNumber}</p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">NIB: {employee.bankAccountNumber || "Not provided"}</p>
                     </div>
@@ -797,6 +797,7 @@ function EmployeeProfileDialog({
               Gender: employee.gender,
               Department: employee.department,
               Position: employee.position,
+              "Machine number": employee.machineNumber || "Not assigned",
               Salary: currency(employee.salary),
               "Employment type": employee.employmentType,
               "Hire date": formatDate(employee.hireDate),
@@ -942,6 +943,7 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
     gender: (employee?.gender ?? "Female") as Gender,
     dateOfBirth: employee?.dateOfBirth ?? "",
     position: employee?.position ?? "",
+    machineNumber: employee?.machineNumber ?? "",
     department: (employee?.department ?? "Production") as Department,
     salary: employee ? String(employee.salary) : "",
     employmentType: (employee?.employmentType ?? "Full-time") as EmploymentType,
@@ -1163,6 +1165,9 @@ function EmployeeForm({ token, employee, onSubmit, pending, error, onCancel }: {
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Position"><Input value={values.position} onChange={(event) => setField("position", event.target.value)} required placeholder="Tailor" /></Field>
+          <Field label="Machine number (optional)"><Input value={values.machineNumber} onChange={(event) => setField("machineNumber", event.target.value)} placeholder="e.g. SM-01" /></Field>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
           <Field label="Department">
             <Select value={values.department} onChange={(event) => setField("department", event.target.value)}>
               <option>Production</option><option>Sales</option><option>Admin</option><option>Store</option>
