@@ -1,9 +1,10 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { resolvePooledDatabaseUrl } from "../src/shared/databaseUrl.js";
 
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL ?? "postgresql://light_garment:light_garment_password@localhost:5432/light_garment_erp?schema=public"
+  connectionString: resolvePooledDatabaseUrl(process.env.DATABASE_URL)
 });
 const prisma = new PrismaClient({ adapter });
 

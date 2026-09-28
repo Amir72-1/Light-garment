@@ -20,12 +20,33 @@ NODE_ENV=production
 PORT=4000
 DEMO_MODE=false
 JWT_SECRET=<long-random-secret>
-DATABASE_URL=<free-postgres-connection-url>
+DATABASE_URL=<neon-pooled-connection-url>
+DIRECT_URL=<neon-direct-connection-url>
 CORS_ORIGIN=<your-public-app-url>
 INITIAL_OWNER_NAME=<optional-owner-name>
 INITIAL_OWNER_EMAIL=<optional-owner-email>
 INITIAL_OWNER_PASSWORD=<optional-owner-password>
 ```
+
+### Neon PostgreSQL (recommended)
+
+Neon gives you two connection strings. Use both on Render:
+
+| Variable | Neon dashboard | Example host |
+|----------|----------------|--------------|
+| `DATABASE_URL` | **Pooled connection** | `ep-xxx-pooler.region.aws.neon.tech` |
+| `DIRECT_URL` | **Direct connection** | `ep-xxx.region.aws.neon.tech` (no `-pooler`) |
+
+If you only set `DATABASE_URL`, deploy will try to derive the direct URL by removing `-pooler` from the hostname.
+
+Both URLs should include `?sslmode=require`. The app also adds `connect_timeout=30` automatically for Neon cold starts.
+
+**Common error:** `P1001: Can't reach database server` usually means:
+1. Neon database is waking up from sleep — deploy now retries automatically.
+2. `DATABASE_URL` uses the pooler host for migrations — set `DIRECT_URL` to the non-pooler string.
+3. Database was deleted or credentials changed — copy fresh strings from the Neon dashboard.
+
+Wake the database in the Neon console before redeploying if the first deploy after a long idle period fails.
 
 Do not deploy real usage with `DEMO_MODE=true`; demo mode is in-memory and resets on restart.
 
@@ -35,11 +56,12 @@ If the initial owner variables are omitted and no Owner user exists, the seed cr
 
 The repository includes `render.yaml`.
 
-1. Create a free PostgreSQL database and copy its connection string.
+1. Create a free PostgreSQL database on [Neon](https://neon.tech) and copy **both** connection strings (pooled + direct).
 2. In Render, create a new Blueprint/Web Service from this repository.
-3. Set `DATABASE_URL` to the PostgreSQL connection string.
-4. Set `CORS_ORIGIN` to the public URL Render gives the app.
-5. Deploy.
+3. Set `DATABASE_URL` to the **pooled** Neon connection string.
+4. Set `DIRECT_URL` to the **direct** Neon connection string.
+5. Set `CORS_ORIGIN` to the public URL Render gives the app.
+6. Deploy.
 
 The start command runs:
 

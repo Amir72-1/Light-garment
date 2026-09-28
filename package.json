@@ -12,7 +12,7 @@
     "build": "npm run clean && npm run db:generate && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server.js",
     "postinstall": "prisma generate",
-    "deploy:db": "prisma db push --accept-data-loss && npm run db:seed",
+    "deploy:db": "tsx prisma/deploy.ts",
     "start:deploy": "npm run deploy:db && npm start",
     "test": "vitest run",
     "db:generate": "prisma generate",
