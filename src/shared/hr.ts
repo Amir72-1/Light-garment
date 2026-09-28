@@ -12,17 +12,24 @@ export function monthsEmployedBy(hireDate: string, asOf = new Date()) {
 
 export function datesBetween(startDate: string, endDate: string) {
   const dates: string[] = [];
-  const current = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  const current = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
   while (current <= end) {
     dates.push(current.toISOString().slice(0, 10));
-    current.setDate(current.getDate() + 1);
+    current.setUTCDate(current.getUTCDate() + 1);
   }
   return dates;
 }
 
 export function inclusiveDayCount(startDate: string, endDate: string) {
   return datesBetween(startDate, endDate).length;
+}
+
+export function yearlyBreakDays(startDate: string, endDate: string, entitlementDays: number) {
+  if (endDate < startDate) throw new Error("End date must be on or after the start date.");
+  const days = inclusiveDayCount(startDate, endDate);
+  if (days > entitlementDays) throw new Error(`Yearly break cannot exceed ${entitlementDays} days (selected ${days}).`);
+  return days;
 }
 
 export function yearlyBreakEligibility(params: {

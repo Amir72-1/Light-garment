@@ -24,7 +24,7 @@ import type {
   YearlyBreak,
   YearlyBreakEligibility
 } from "../shared/types.js";
-import { datesBetween, inclusiveDayCount, yearlyBreakEligibility } from "../shared/hr.js";
+import { datesBetween, inclusiveDayCount, yearlyBreakDays, yearlyBreakEligibility } from "../shared/hr.js";
 import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payroll.js";
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { BundleInventoryDemo } from "./bundleInventoryDemo.js";
@@ -948,10 +948,8 @@ export class DemoRepository {
       settings: this.payrollSettingsConfig
     });
     if (!eligibility.eligible) throw new Error(eligibility.reason || "Employee is not eligible for yearly break");
-    const days = inclusiveDayCount(input.startDate, input.endDate);
-    if (days > this.payrollSettingsConfig.yearlyBreakEntitlementDays) {
-      throw new Error(`Yearly break cannot exceed ${this.payrollSettingsConfig.yearlyBreakEntitlementDays} days.`);
-    }
+    const days = yearlyBreakDays(input.startDate, input.endDate, this.payrollSettingsConfig.yearlyBreakEntitlementDays);
+    if (existing) this.yearlyBreaks = this.yearlyBreaks.filter((item) => item.id !== existing.id);
     const yearlyBreak: YearlyBreak = {
       id: id("brk"),
       employeeId,

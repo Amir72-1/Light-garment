@@ -582,6 +582,29 @@ describe("Light Garment ERP API", () => {
       .expect(400);
   });
 
+  it("rejects yearly breaks with invalid date ranges and explains why", async () => {
+    const { app, token } = await login();
+    const eligibility = await request(app).get("/api/yearly-breaks/eligibility?year=2027").set("Authorization", `Bearer ${token}`).expect(200);
+    const eligible = eligibility.body.find((row: { eligible: boolean }) => row.eligible);
+
+    const reversed = await request(app)
+      .post(`/api/employees/${eligible.employee.id}/yearly-break`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ year: 2027, startDate: "2027-03-10", endDate: "2027-03-01" })
+      .expect(400);
+    expect(reversed.body.message).toMatch(/end date/i);
+
+    const tooLong = await request(app)
+      .post(`/api/employees/${eligible.employee.id}/yearly-break`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ year: 2027, startDate: "2027-03-01", endDate: "2027-03-31" })
+      .expect(400);
+    expect(tooLong.body.message).toMatch(/cannot exceed 14 days/);
+
+    const breaks = await request(app).get(`/api/employees/${eligible.employee.id}/yearly-breaks`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(breaks.body.some((item: { year: number }) => item.year === 2027)).toBe(false);
+  });
+
   it("lists yearly break eligibility and registers leave for eligible employees", async () => {
     const { app, token } = await login();
     const year = 2026;
