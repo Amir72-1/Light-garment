@@ -1,5 +1,5 @@
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { decodeVideoFrame } from "./qrDecoder";
 
 export type BundleQrScannerHandle = {
   start: () => Promise<void>;
@@ -13,12 +13,13 @@ type BundleQrScannerProps = {
 };
 
 const CAMERA_CONSTRAINTS: MediaStreamConstraints[] = [
+  { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
   { video: { facingMode: { ideal: "environment" } }, audio: false },
-  { video: { facingMode: "environment" }, audio: false },
   { video: true, audio: false }
 ];
 
 const SAME_CODE_COOLDOWN_MS = 5000;
+const FRAME_INTERVAL_MS = 90;
 
 export async function primeBundleCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return;
@@ -33,125 +34,135 @@ export async function primeBundleCamera() {
   }
 }
 
-async function resolveBackCameraId() {
-  try {
-    const cameras = await Html5Qrcode.getCameras();
-    if (!cameras.length) return { facingMode: "environment" as const };
-    const backCamera = cameras.find((camera) => /back|rear|environment|wide/i.test(camera.label));
-    if (backCamera) return backCamera.id;
-    return cameras[cameras.length - 1]?.id ?? { facingMode: "environment" as const };
-  } catch {
-    return { facingMode: "environment" as const };
+async function openCameraStream() {
+  let lastError: unknown = new Error("Camera is not available in this browser.");
+  if (!navigator.mediaDevices?.getUserMedia) throw lastError;
+  for (const constraints of CAMERA_CONSTRAINTS) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      lastError = error;
+      if (error instanceof DOMException && error.name === "NotAllowedError") break;
+    }
   }
+  throw lastError;
+}
+
+async function enableContinuousFocus(track: MediaStreamTrack) {
+  const capabilities = (track.getCapabilities?.() ?? {}) as { focusMode?: string[] };
+  if (!capabilities.focusMode?.includes("continuous")) return;
+  try {
+    await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] });
+  } catch {
+    // Some devices list continuous focus but reject it; the default focus still works.
+  }
+}
+
+function cameraErrorMessage(error: unknown) {
+  if (error instanceof DOMException && error.name === "NotAllowedError") return "Camera access is blocked. Allow the camera for this site, or use Scan from photo.";
+  if (error instanceof DOMException && error.name === "NotFoundError") return "No camera was found. Use Scan from photo instead.";
+  return "Could not open the camera. Retrying...";
 }
 
 export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScannerProps>(function BundleQrScanner(
   { visible, onScan, paused = false },
   ref
 ) {
-  const reactId = useId().replace(/:/g, "");
-  const elementId = `bundle-qr-camera-${reactId}`;
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const startingRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const loopTimerRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const runIdRef = useRef(0);
   const scanLockRef = useRef(false);
   const lastScanRef = useRef("");
   const lastScanAtRef = useRef(0);
-  const retryTimerRef = useRef<number | null>(null);
   const onScanRef = useRef(onScan);
   const pausedRef = useRef(paused);
   const [cameraLive, setCameraLive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [detected, setDetected] = useState(false);
 
   onScanRef.current = onScan;
   pausedRef.current = paused;
 
-  const clearRetry = useCallback(() => {
-    if (retryTimerRef.current) {
-      window.clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
+  const clearTimers = useCallback(() => {
+    if (loopTimerRef.current) window.clearTimeout(loopTimerRef.current);
+    if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
+    loopTimerRef.current = null;
+    retryTimerRef.current = null;
   }, []);
 
   const stopScanner = useCallback(async () => {
-    clearRetry();
-    const scanner = scannerRef.current;
-    scannerRef.current = null;
+    runIdRef.current += 1;
+    clearTimers();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
     setCameraLive(false);
-    if (!scanner) return;
-    try {
-      if (scanner.isScanning) await scanner.stop();
-    } catch {
-      // Ignore stop races while the camera is still opening.
-    }
-    try {
-      scanner.clear();
-    } catch {
-      // Ignore clear races after unmount.
-    }
-  }, [clearRetry]);
+  }, [clearTimers]);
+
+  const handleDecoded = useCallback((raw: string) => {
+    const code = raw.trim();
+    if (!code || pausedRef.current || scanLockRef.current) return;
+    if (code === lastScanRef.current && Date.now() - lastScanAtRef.current < SAME_CODE_COOLDOWN_MS) return;
+    scanLockRef.current = true;
+    lastScanRef.current = code;
+    lastScanAtRef.current = Date.now();
+    navigator.vibrate?.(60);
+    setDetected(true);
+    onScanRef.current(code);
+    window.setTimeout(() => {
+      scanLockRef.current = false;
+      setDetected(false);
+    }, 1200);
+  }, []);
 
   const startScanner = useCallback(async () => {
-    if (!visible || startingRef.current) return;
-    if (scannerRef.current?.isScanning) {
+    if (!visible) return;
+    if (streamRef.current?.active) {
       setCameraLive(true);
       return;
     }
-
-    startingRef.current = true;
-    clearRetry();
-    setCameraLive(false);
+    await stopScanner();
+    const runId = runIdRef.current;
+    setCameraError(null);
 
     try {
-      if (scannerRef.current) {
-        await stopScanner();
+      const stream = await openCameraStream();
+      if (runId !== runIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
-
-      const scanner = new Html5Qrcode(elementId, {
-        verbose: false,
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-      });
-      scannerRef.current = scanner;
-      const cameraConfig = await resolveBackCameraId();
-
-      // No qrbox: the whole frame is scanned, so html5-qrcode draws no shaded frame over the video.
-      await scanner.start(
-        cameraConfig,
-        {
-          fps: 12,
-          disableFlip: false,
-          videoConstraints: {
-            facingMode: { ideal: "environment" },
-            width: { min: 640, ideal: 1280 },
-            height: { min: 480, ideal: 720 }
-          }
-        },
-        (decoded) => {
-          const code = decoded.trim();
-          if (!code || pausedRef.current || scanLockRef.current) return;
-          if (code === lastScanRef.current && Date.now() - lastScanAtRef.current < SAME_CODE_COOLDOWN_MS) return;
-          scanLockRef.current = true;
-          lastScanRef.current = code;
-          lastScanAtRef.current = Date.now();
-          onScanRef.current(code);
-          window.setTimeout(() => {
-            scanLockRef.current = false;
-          }, 1200);
-        },
-        () => undefined
-      );
-
+      streamRef.current = stream;
+      const [track] = stream.getVideoTracks();
+      if (track) void enableContinuousFocus(track);
+      const video = videoRef.current;
+      if (!video) return;
+      video.srcObject = stream;
+      await video.play().catch(() => undefined);
       setCameraLive(true);
-    } catch {
-      await stopScanner();
-      retryTimerRef.current = window.setTimeout(() => {
-        startingRef.current = false;
-        void startScanner();
-      }, 1200);
-      return;
-    } finally {
-      startingRef.current = false;
+
+      const canvas = canvasRef.current ?? document.createElement("canvas");
+      canvasRef.current = canvas;
+      let attempt = 0;
+      const tick = async () => {
+        if (runId !== runIdRef.current) return;
+        if (!pausedRef.current && !scanLockRef.current && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          const code = await decodeVideoFrame(video, canvas, attempt).catch(() => null);
+          attempt += 1;
+          if (code && runId === runIdRef.current) handleDecoded(code);
+        }
+        if (runId === runIdRef.current) loopTimerRef.current = window.setTimeout(() => void tick(), FRAME_INTERVAL_MS);
+      };
+      void tick();
+    } catch (error) {
+      if (runId !== runIdRef.current) return;
+      setCameraError(cameraErrorMessage(error));
+      const blocked = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "NotFoundError");
+      if (!blocked) retryTimerRef.current = window.setTimeout(() => void startScanner(), 1500);
     }
-  }, [clearRetry, elementId, stopScanner, visible]);
+  }, [handleDecoded, stopScanner, visible]);
 
   useImperativeHandle(ref, () => ({
     start: startScanner,
@@ -159,9 +170,7 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   }), [startScanner, stopScanner]);
 
   useEffect(() => {
-    if (!visible) {
-      void stopScanner();
-    }
+    if (!visible) void stopScanner();
   }, [visible, stopScanner]);
 
   useEffect(() => () => {
@@ -171,11 +180,11 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   if (!visible) return null;
 
   return (
-    <div className="bundle-qr-scanner">
-      <div id={elementId} className="bundle-qr-scanner__viewport" />
+    <div className={`bundle-qr-scanner${detected ? " bundle-qr-scanner--detected" : ""}`}>
+      <video ref={videoRef} className="bundle-qr-scanner__video" playsInline muted autoPlay />
       {!cameraLive && <div className="bundle-qr-scanner__pulse" aria-hidden />}
       <div className="bundle-qr-scanner__hint">
-        <p>{cameraLive ? "Point at the QR code" : "Opening camera..."}</p>
+        <p>{cameraError ?? (detected ? "QR code found" : cameraLive ? "Point at the QR code" : "Opening camera...")}</p>
       </div>
     </div>
   );

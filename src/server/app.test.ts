@@ -715,6 +715,13 @@ describe("Bundle inventory API", () => {
     expect(scanned.body.bundleNumber).toBe(registered.body[0].bundleNumber);
     expect(scanned.body.productName).toBe("Men's Polo Shirt");
 
+    const scannedByLabelCode = await request(app)
+      .post("/api/bundles/scan")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ code: registered.body[0].qrCodeNumber })
+      .expect(200);
+    expect(scannedByLabelCode.body.bundleNumber).toBe(registered.body[0].bundleNumber);
+
     const locations = await request(app)
       .get(`/api/bundles/locations?warehouseId=${warehouseId}`)
       .set("Authorization", `Bearer ${token}`)

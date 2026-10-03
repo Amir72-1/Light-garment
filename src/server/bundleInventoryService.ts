@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import QRCode from "qrcode";
+import { renderBundleQrImage } from "./bundleQrImage.js";
 import type { PrismaClient } from "@prisma/client";
 import { nextBundleNumber as nextBundleNumberAfter } from "./numbering.js";
 import type {
@@ -206,7 +206,7 @@ async function buildBundleQr(
       : undefined
   };
   const qrPayload = encodeQrPayload(payload);
-  const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+  const qrImageUrl = await renderBundleQrImage(row.qrCodeNumber);
   return { qrPayload, qrImageUrl, payload };
 }
 

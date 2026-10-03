@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { resolvePooledDatabaseUrl } from "../src/shared/databaseUrl.js";
+import { renderBundleQrImage } from "../src/server/bundleQrImage.js";
 
 const adapter = new PrismaPg({
   connectionString: resolvePooledDatabaseUrl(process.env.DATABASE_URL)
@@ -160,6 +161,30 @@ async function main() {
       }
     });
   }
+
+  await refreshBundleQrImages();
+}
+
+async function refreshBundleQrImages() {
+  let cursor: string | undefined;
+  let refreshed = 0;
+  for (;;) {
+    const rows = await prisma.inventoryBundle.findMany({
+      select: { id: true, qrCodeNumber: true, qrImageUrl: true },
+      orderBy: { id: "asc" },
+      take: 200,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {})
+    });
+    if (!rows.length) break;
+    for (const row of rows) {
+      const qrImageUrl = await renderBundleQrImage(row.qrCodeNumber);
+      if (row.qrImageUrl === qrImageUrl) continue;
+      await prisma.inventoryBundle.update({ where: { id: row.id }, data: { qrImageUrl } });
+      refreshed += 1;
+    }
+    cursor = rows[rows.length - 1].id;
+  }
+  if (refreshed) console.log(`Regenerated ${refreshed} bundle QR images with the compact scan code.`);
 }
 
 main()

@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Download,
+  ImageUp,
   Loader2,
   PackagePlus,
   Printer,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { BundleQrScanner, primeBundleCamera, type BundleQrScannerHandle } from "./bundleQrScanner";
+import { decodeImageFile } from "./qrDecoder";
 import { Badge, Button, Card, Field, Input, Select, Textarea } from "./components/ui";
 import {
   clearFailedOperations,
@@ -131,6 +133,8 @@ export function BundleInventoryPanel({ token, role }: { token: string; role: Rol
   const canDeleteBundles = role === "Owner" || role === "Manager";
   const queryClient = useQueryClient();
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoDecoding, setPhotoDecoding] = useState(false);
   const scannerRef = useRef<BundleQrScannerHandle>(null);
   const [tab, setTab] = useState<"scan" | "register" | "bundles" | "history">("bundles");
   const [search, setSearch] = useState("");
@@ -437,6 +441,27 @@ export function BundleInventoryPanel({ token, role }: { token: string; role: Rol
     [scanMutation]
   );
 
+  const handlePhotoSelected = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoDecoding(true);
+    setScanLookupMessage(null);
+    try {
+      const code = await decodeImageFile(file);
+      if (code) handleScanSubmit(code);
+      else setScanLookupMessage("No QR code found in that photo. Take it closer, in good light, with the whole QR code visible.");
+    } catch {
+      setScanLookupMessage("Could not read that image. Try another photo.");
+    } finally {
+      setPhotoDecoding(false);
+    }
+  }, [handleScanSubmit]);
+
+  const openPhotoScan = useCallback(async () => {
+    setCameraActive(false);
+    await scannerRef.current?.stop();
+    photoInputRef.current?.click();
+  }, []);
+
   const openCameraScan = useCallback(async () => {
     await primeBundleCamera();
     setTab("scan");
@@ -534,6 +559,31 @@ export function BundleInventoryPanel({ token, role }: { token: string; role: Rol
                   <p className="mt-3 text-sm font-semibold text-slate-700">Tap Scan to open your camera</p>
                 </div>
               )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              {!cameraActive && (
+                <Button type="button" onClick={() => void openCameraScan()}>
+                  <ScanLine className="h-4 w-4" />
+                  Open camera
+                </Button>
+              )}
+              <Button type="button" variant="secondary" disabled={photoDecoding} onClick={() => void openPhotoScan()}>
+                {photoDecoding ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUp className="h-4 w-4" />}
+                {photoDecoding ? "Reading photo..." : "Scan from photo"}
+              </Button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                aria-label="QR code photo"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  void handlePhotoSelected(file);
+                }}
+              />
             </div>
 
             {scanMutation.isPending && (

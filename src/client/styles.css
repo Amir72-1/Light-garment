@@ -184,12 +184,16 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   min-height: clamp(320px, 72vw, 520px);
 }
 
-.bundle-qr-scanner__viewport {
-  display: flex;
+.bundle-qr-scanner__video {
+  display: block;
   width: 100%;
-  min-height: clamp(320px, 72vw, 520px);
-  align-items: center;
-  justify-content: center;
+  height: clamp(320px, 72vw, 520px);
+  object-fit: cover;
+}
+
+.bundle-qr-scanner--detected .bundle-qr-scanner__video {
+  outline: 4px solid #10b981;
+  outline-offset: -4px;
 }
 
 .bundle-qr-scanner__pulse {
@@ -234,20 +238,6 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   color: #ffffff;
 }
 
-#qr-shaded-region,
-.bundle-qr-scanner__viewport > div {
-  display: none !important;
-}
-
-/* html5-qrcode maps the on-screen video size onto its decode canvas, so the video must keep its native aspect ratio. */
-.bundle-qr-scanner__viewport video {
-  display: block;
-  width: auto !important;
-  height: auto !important;
-  max-width: 100%;
-  max-height: min(72vh, 640px);
-}
-
 .bundle-scan-status {
   margin-top: 0.75rem;
   display: flex;
@@ -279,10 +269,13 @@ html.dark .action-row::-webkit-scrollbar-thumb {
     background: transparent;
   }
 
-  .bundle-qr-scanner,
-  .bundle-qr-scanner__viewport {
+  .bundle-qr-scanner {
     min-height: min(72vh, 640px);
     border-radius: 1.25rem;
+  }
+
+  .bundle-qr-scanner__video {
+    height: min(72vh, 640px);
   }
 }
 

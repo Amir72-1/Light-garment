@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import QRCode from "qrcode";
+import { renderBundleQrImage } from "./bundleQrImage.js";
 import { nextBundleNumber } from "./numbering.js";
 import type {
   BundleItem,
@@ -183,7 +183,7 @@ export class BundleInventoryDemo {
           warehouseCode: warehouse.code
         };
         const qrPayload = encodeQrPayload(payload);
-        const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+        const qrImageUrl = await renderBundleQrImage(qrCodeNumber);
         const bundle: InventoryBundle = {
           id: bundleId,
           bundleNumber,
@@ -303,7 +303,7 @@ export class BundleInventoryDemo {
         }))
       };
       const qrPayload = encodeQrPayload(payload);
-      const qrImageUrl = await QRCode.toDataURL(qrPayload, { margin: 1, width: 256 });
+      const qrImageUrl = await renderBundleQrImage(qrCodeNumber);
       const bundle: InventoryBundle = {
         id: bundleId,
         bundleNumber,
@@ -395,7 +395,7 @@ export class BundleInventoryDemo {
           warehouseCode
         };
     bundle.qrPayload = encodeQrPayload(payload);
-    bundle.qrImageUrl = await QRCode.toDataURL(bundle.qrPayload, { margin: 1, width: 256 });
+    bundle.qrImageUrl = await renderBundleQrImage(bundle.qrCodeNumber);
   }
 
   async moveBundlePieces(input: MoveBundleInput, ctx: AuditContext) {
@@ -485,7 +485,7 @@ export class BundleInventoryDemo {
         bundleNumber,
         qrCodeNumber,
         qrPayload: encodeQrPayload(payload),
-        qrImageUrl: await QRCode.toDataURL(encodeQrPayload(payload), { margin: 1, width: 256 }),
+        qrImageUrl: await renderBundleQrImage(qrCodeNumber),
         color: destColor,
         colorCode: destColorCode,
         size: destSize,
