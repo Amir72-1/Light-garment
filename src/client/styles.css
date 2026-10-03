@@ -185,8 +185,11 @@ html.dark .action-row::-webkit-scrollbar-thumb {
 }
 
 .bundle-qr-scanner__viewport {
+  display: flex;
   width: 100%;
   min-height: clamp(320px, 72vw, 520px);
+  align-items: center;
+  justify-content: center;
 }
 
 .bundle-qr-scanner__pulse {
@@ -231,19 +234,18 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   color: #ffffff;
 }
 
-.bundle-qr-scanner__viewport > div,
-.bundle-qr-scanner__viewport > div > div {
-  width: 100% !important;
-  min-height: inherit;
+#qr-shaded-region,
+.bundle-qr-scanner__viewport > div {
+  display: none !important;
 }
 
+/* html5-qrcode maps the on-screen video size onto its decode canvas, so the video must keep its native aspect ratio. */
 .bundle-qr-scanner__viewport video {
   display: block;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: inherit;
-  object-fit: cover;
-  border-radius: 1rem;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: min(72vh, 640px);
 }
 
 .bundle-scan-status {
@@ -278,8 +280,7 @@ html.dark .action-row::-webkit-scrollbar-thumb {
   }
 
   .bundle-qr-scanner,
-  .bundle-qr-scanner__viewport,
-  .bundle-qr-scanner__viewport video {
+  .bundle-qr-scanner__viewport {
     min-height: min(72vh, 640px);
     border-radius: 1.25rem;
   }

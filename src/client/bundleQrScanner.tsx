@@ -18,6 +18,8 @@ const CAMERA_CONSTRAINTS: MediaStreamConstraints[] = [
   { video: true, audio: false }
 ];
 
+const SAME_CODE_COOLDOWN_MS = 5000;
+
 export async function primeBundleCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return;
   for (const constraints of CAMERA_CONSTRAINTS) {
@@ -43,11 +45,6 @@ async function resolveBackCameraId() {
   }
 }
 
-function scanRegion(viewfinderWidth: number, viewfinderHeight: number) {
-  const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.88);
-  return { width: Math.max(edge, 240), height: Math.max(edge, 240) };
-}
-
 export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScannerProps>(function BundleQrScanner(
   { visible, onScan, paused = false },
   ref
@@ -58,11 +55,14 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   const startingRef = useRef(false);
   const scanLockRef = useRef(false);
   const lastScanRef = useRef("");
+  const lastScanAtRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
   const onScanRef = useRef(onScan);
+  const pausedRef = useRef(paused);
   const [cameraLive, setCameraLive] = useState(false);
 
   onScanRef.current = onScan;
+  pausedRef.current = paused;
 
   const clearRetry = useCallback(() => {
     if (retryTimerRef.current) {
@@ -107,16 +107,17 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
 
       const scanner = new Html5Qrcode(elementId, {
         verbose: false,
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
       });
       scannerRef.current = scanner;
       const cameraConfig = await resolveBackCameraId();
 
+      // No qrbox: the whole frame is scanned, so html5-qrcode draws no shaded frame over the video.
       await scanner.start(
         cameraConfig,
         {
           fps: 12,
-          qrbox: scanRegion,
           disableFlip: false,
           videoConstraints: {
             facingMode: { ideal: "environment" },
@@ -126,18 +127,15 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
         },
         (decoded) => {
           const code = decoded.trim();
-          if (!code || scanLockRef.current || code === lastScanRef.current) return;
+          if (!code || pausedRef.current || scanLockRef.current) return;
+          if (code === lastScanRef.current && Date.now() - lastScanAtRef.current < SAME_CODE_COOLDOWN_MS) return;
           scanLockRef.current = true;
           lastScanRef.current = code;
+          lastScanAtRef.current = Date.now();
           onScanRef.current(code);
-          scanner.pause(true);
           window.setTimeout(() => {
             scanLockRef.current = false;
-            lastScanRef.current = "";
-            if (scannerRef.current?.isScanning && !paused) {
-              scanner.resume().catch(() => undefined);
-            }
-          }, 1500);
+          }, 1200);
         },
         () => undefined
       );
@@ -153,7 +151,7 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
     } finally {
       startingRef.current = false;
     }
-  }, [clearRetry, elementId, paused, stopScanner, visible]);
+  }, [clearRetry, elementId, stopScanner, visible]);
 
   useImperativeHandle(ref, () => ({
     start: startScanner,
@@ -165,12 +163,6 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
       void stopScanner();
     }
   }, [visible, stopScanner]);
-
-  useEffect(() => {
-    if (!scannerRef.current?.isScanning) return;
-    if (paused) scannerRef.current.pause(true);
-    else scannerRef.current.resume().catch(() => undefined);
-  }, [paused]);
 
   useEffect(() => () => {
     void stopScanner();
