@@ -34,6 +34,7 @@ import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPr
 import { BundleInventoryService } from "./bundleInventoryService.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
 import { resolvePooledDatabaseUrl } from "../shared/databaseUrl.js";
+import { nextProductSku } from "./numbering.js";
 
 type ListQuery = {
   search?: string;
@@ -925,7 +926,7 @@ export class PrismaRepository {
   }
 
   async createProduct(input: Omit<Product, "id" | "sku" | "qrCode"> & { sku?: string }) {
-    const sku = input.sku || `LGM-SH-${String(await this.prisma.product.count() + 1).padStart(4, "0")}`;
+    const sku = input.sku || nextProductSku((await this.prisma.product.findMany({ where: { sku: { startsWith: "LGM-SH-" } }, select: { sku: true } })).map((row) => row.sku));
     const row = await this.prisma.product.create({ data: { ...input, sku, qrCode: await QRCode.toDataURL(sku), images: input.images || [] } as any });
     await this.moveStock(row.id, row.quantity, "Stock in", undefined, "Finished goods", "Product registration");
     return productFromDb(row);

@@ -29,6 +29,7 @@ import { calculatePayrollRecord, defaultPayrollSettings, monthKey } from "./payr
 import { normalizeCalendar, normalizeLocale, defaultUserPreferences, type UserPreferences } from "../shared/preferences.js";
 import { BundleInventoryDemo } from "./bundleInventoryDemo.js";
 import { normalizeProfileImageUrl } from "./imageStorage.js";
+import { nextProductSku } from "./numbering.js";
 
 type UserRecord = {
   id: string;
@@ -766,7 +767,7 @@ export class DemoRepository {
   }
 
   async createProduct(input: Omit<Product, "id" | "sku" | "qrCode"> & { sku?: string }) {
-    const sku = input.sku || `LGM-SH-${String(this.products.length + 1).padStart(4, "0")}`;
+    const sku = input.sku || nextProductSku(this.products.map((product) => product.sku));
     const product: Product = { ...input, id: id("prd"), sku, qrCode: await QRCode.toDataURL(sku) };
     this.products.unshift(product);
     this.inventory.unshift({ id: id("inv"), productId: product.id, productName: product.productName, type: "Stock in", quantity: product.quantity, toLocation: "Finished goods", reference: "Product registration", createdAt: nowIso() });

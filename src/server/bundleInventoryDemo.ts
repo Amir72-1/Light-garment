@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import QRCode from "qrcode";
+import { nextBundleNumber } from "./numbering.js";
 import type {
   BundleItem,
   BundleScanResult,
@@ -167,7 +168,7 @@ export class BundleInventoryDemo {
       const color = this.ensureDemoColor(variantInput.color, variantInput.colorCode);
       for (let index = 0; index < variantInput.bundleQuantity; index += 1) {
         const bundleId = id("bnd");
-        const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
+        const bundleNumber = nextBundleNumber("LGM", this.bundles.map((bundle) => bundle.bundleNumber));
         const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
         const payload: QrBundlePayload = {
           v: 1,
@@ -273,7 +274,7 @@ export class BundleInventoryDemo {
 
     for (let index = 0; index < bundleQuantity; index += 1) {
       const bundleId = id("bnd");
-      const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
+      const bundleNumber = nextBundleNumber("LGM", this.bundles.map((bundle) => bundle.bundleNumber));
       const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
       const items: BundleItem[] = preparedItems.map((item) => ({
         id: id("item"),
@@ -461,7 +462,7 @@ export class BundleInventoryDemo {
     if (shouldCreateDestination && toWarehouse) {
       const toLocation = this.locationById(input.toLocationId);
       const bundleId = id("bnd");
-      const bundleNumber = `LGM-BND-${String(this.bundles.length + 1).padStart(5, "0")}`;
+      const bundleNumber = nextBundleNumber("LGM", this.bundles.map((bundle) => bundle.bundleNumber));
       const qrCodeNumber = `LGM-QR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
       const destColor = movedLine?.color ?? source.color;
       const destColorCode = movedLine?.colorCode ?? source.colorCode;

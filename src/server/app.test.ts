@@ -929,6 +929,9 @@ describe("Bundle inventory API", () => {
     const product = await request(app).post("/api/products").set(auth)
       .send({ productName: "Delete Me Shirt", model: "DM", color: "Red", size: "M", quantity: 10, costPrice: 100, sellingPrice: 200 })
       .expect(201);
+    await request(app).post("/api/products").set(auth)
+      .send({ productName: "Kept Shirt", model: "KS", color: "Green", size: "S", quantity: 4, costPrice: 100, sellingPrice: 200 })
+      .expect(201);
     const raw = await request(app).post("/api/raw-materials").set(auth)
       .send({ name: "Delete Me Thread", category: "Thread", unit: "cone", quantity: 5, pileCount: 1, reorderLevel: 1, unitCost: 10 })
       .expect(201);
@@ -944,6 +947,11 @@ describe("Bundle inventory API", () => {
 
     const products = await request(app).get("/api/products").set(auth).expect(200);
     expect(products.body.some((item: { id: string }) => item.id === product.body.id)).toBe(false);
+
+    const replacement = await request(app).post("/api/products").set(auth)
+      .send({ productName: "After Delete Shirt", model: "AD", color: "Blue", size: "L", quantity: 3, costPrice: 100, sellingPrice: 200 })
+      .expect(201);
+    expect(products.body.some((item: { sku: string }) => item.sku === replacement.body.sku)).toBe(false);
     const rawRows = await request(app).get("/api/raw-materials").set(auth).expect(200);
     expect(rawRows.body.some((item: { id: string }) => item.id === raw.body.id)).toBe(false);
     const rawHistory = await request(app).get("/api/raw-materials/history").set(auth).expect(200);
@@ -1012,6 +1020,21 @@ describe("Bundle inventory API", () => {
     expect((await request(app).get("/api/bundles/transactions").set(auth).expect(200)).body).toHaveLength(0);
     const bundles = await request(app).get("/api/bundles").set(auth).expect(200);
     expect(bundles.body.some((bundle: { productName: string }) => bundle.productName === "History Shirt")).toBe(true);
+  });
+
+  it("keeps bundle numbers unique after an earlier bundle is deleted", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const metadata = await request(app).get("/api/bundles/metadata").set(auth).expect(200);
+    const register = () => request(app).post("/api/bundles/register").set(auth)
+      .send({ productName: "Numbering Shirt", style: "Slim", fabric: "Cotton", color: "Black", size: "S", bundleQuantity: 2, piecesPerBundle: 5, unitCost: 100, sellingPrice: 200, warehouseId: metadata.body.warehouses[0].id })
+      .expect(201);
+    const first = await register();
+    await request(app).delete(`/api/bundles/${first.body[0].id}`).set(auth).expect(204);
+    await register();
+    const bundles = await request(app).get("/api/bundles").set(auth).expect(200);
+    const numbers = bundles.body.map((bundle: { bundleNumber: string }) => bundle.bundleNumber);
+    expect(new Set(numbers).size).toBe(numbers.length);
   });
 
   it("lets the owner delete salary history and yearly breaks", async () => {

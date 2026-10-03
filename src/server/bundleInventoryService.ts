@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import QRCode from "qrcode";
 import type { PrismaClient } from "@prisma/client";
+import { nextBundleNumber as nextBundleNumberAfter } from "./numbering.js";
 import type {
   BundleScanResult,
   BundleStatus,
@@ -268,8 +269,8 @@ async function ensureSize(prisma: PrismaClient, code: string, sizeId?: string) {
 }
 
 async function nextBundleNumber(prisma: PrismaClient, prefix: string) {
-  const count = await prisma.inventoryBundle.count();
-  return `${prefix}-BND-${String(count + 1).padStart(5, "0")}`;
+  const rows = await prisma.inventoryBundle.findMany({ select: { bundleNumber: true } });
+  return nextBundleNumberAfter(prefix, rows.map((row) => row.bundleNumber));
 }
 
 async function nextQrCodeNumber(prisma: PrismaClient) {
