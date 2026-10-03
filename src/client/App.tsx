@@ -893,17 +893,12 @@ function EmployeeProfileDialog({
             </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="text-slate-500"><tr><th className="py-2">Effective date</th><th>Previous</th><th>New</th><th>Reason</th><th>Changed by</th>{isOwner && <th />}</tr></thead>
+                <thead className="text-slate-500"><tr>{isOwner && <th className="w-10" />}<th className="py-2">Effective date</th><th>Previous</th><th>New</th><th>Reason</th><th>Changed by</th></tr></thead>
                 <tbody>
                   {salaryHistory.data?.length ? salaryHistory.data.map((entry: SalaryHistoryEntry) => (
                     <tr key={entry.id} className="border-t dark:border-slate-800">
-                      <td className="py-2">{formatDate(entry.effectiveDate)}</td>
-                      <td>{currency(entry.previousSalary)}</td>
-                      <td className="font-semibold text-emerald-700 dark:text-emerald-300">{currency(entry.newSalary)}</td>
-                      <td>{entry.reason || "—"}</td>
-                      <td>{entry.changedByName || "—"}</td>
                       {isOwner && (
-                        <td className="text-right">
+                        <td>
                           <Button
                             variant="ghost"
                             className="h-8 w-8 px-0 text-rose-600"
@@ -918,6 +913,11 @@ function EmployeeProfileDialog({
                           </Button>
                         </td>
                       )}
+                      <td className="py-2">{formatDate(entry.effectiveDate)}</td>
+                      <td>{currency(entry.previousSalary)}</td>
+                      <td className="font-semibold text-emerald-700 dark:text-emerald-300">{currency(entry.newSalary)}</td>
+                      <td>{entry.reason || "—"}</td>
+                      <td>{entry.changedByName || "—"}</td>
                     </tr>
                   )) : <tr><td colSpan={isOwner ? 6 : 5} className="py-3 text-slate-500">No salary history yet.</td></tr>}
                 </tbody>
