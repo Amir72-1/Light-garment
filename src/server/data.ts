@@ -816,6 +816,60 @@ export class DemoRepository {
     return this.rawMaterialMovements;
   }
 
+  async deleteProduct(productId: string) {
+    if (this.sales.some((sale) => sale.items.some((item) => item.productId === productId))) {
+      throw new Error("Cannot delete a product that has POS sales. Its sales records must be kept.");
+    }
+    const product = this.products.find((item) => item.id === productId);
+    if (!product) return false;
+    this.products = this.products.filter((item) => item.id !== productId);
+    this.inventory = this.inventory.filter((item) => item.productId !== productId);
+    this.production = this.production.filter((item) => item.productId !== productId);
+    this.log(`Product ${product.sku} deleted`);
+    return true;
+  }
+
+  async deleteRawMaterial(rawMaterialId: string) {
+    const material = this.rawMaterials.find((item) => item.id === rawMaterialId);
+    if (!material) return false;
+    this.rawMaterials = this.rawMaterials.filter((item) => item.id !== rawMaterialId);
+    this.rawMaterialMovements = this.rawMaterialMovements.filter((item) => item.rawMaterialId !== rawMaterialId);
+    this.log(`Raw material ${material.name} deleted`);
+    return true;
+  }
+
+  async deleteInventoryMovement(movementId: string) {
+    const before = this.inventory.length;
+    this.inventory = this.inventory.filter((item) => item.id !== movementId);
+    return this.inventory.length < before;
+  }
+
+  async clearInventoryMovements() {
+    const count = this.inventory.length;
+    this.inventory = [];
+    return count;
+  }
+
+  async deleteRawMaterialMovement(movementId: string) {
+    const before = this.rawMaterialMovements.length;
+    this.rawMaterialMovements = this.rawMaterialMovements.filter((item) => item.id !== movementId);
+    return this.rawMaterialMovements.length < before;
+  }
+
+  async clearRawMaterialMovements() {
+    const count = this.rawMaterialMovements.length;
+    this.rawMaterialMovements = [];
+    return count;
+  }
+
+  async deleteStockTransaction(transactionId: string) {
+    return this.bundleInventory.deleteTransaction(transactionId);
+  }
+
+  async clearStockTransactions() {
+    return this.bundleInventory.clearTransactions();
+  }
+
   async listProduction() {
     return this.production;
   }
@@ -900,7 +954,7 @@ export class DemoRepository {
   }
 
   async increaseEmployeeSalary(employeeId: string, input: { newSalary: number; effectiveDate?: string; reason?: string }, changedByUserId?: string) {
-    const employee = await this.getEmployee(employeeId);
+    const employee = findEmployeeRecord(this.employees, employeeId);
     if (!employee) return null;
     if (input.newSalary <= employee.salary) throw new Error("New salary must be higher than the current salary.");
     const effectiveDate = input.effectiveDate || todayKey();
@@ -935,6 +989,30 @@ export class DemoRepository {
 
   async listEmployeeYearlyBreaks(employeeId: string) {
     return this.yearlyBreaks.filter((item) => item.employeeId === employeeId).sort((left, right) => right.year - left.year);
+  }
+
+  async deleteSalaryHistoryEntry(employeeId: string, entryId: string) {
+    const before = this.salaryHistory.length;
+    this.salaryHistory = this.salaryHistory.filter((entry) => !(entry.id === entryId && entry.employeeId === employeeId));
+    return this.salaryHistory.length < before;
+  }
+
+  async clearSalaryHistory(employeeId: string) {
+    const before = this.salaryHistory.length;
+    this.salaryHistory = this.salaryHistory.filter((entry) => entry.employeeId !== employeeId);
+    return before - this.salaryHistory.length;
+  }
+
+  async deleteYearlyBreak(employeeId: string, breakId: string) {
+    const yearlyBreak = this.yearlyBreaks.find((item) => item.id === breakId && item.employeeId === employeeId);
+    if (!yearlyBreak) return false;
+    this.yearlyBreaks = this.yearlyBreaks.filter((item) => item.id !== breakId);
+    const dates = new Set(datesBetween(yearlyBreak.startDate, yearlyBreak.endDate));
+    this.attendance = this.attendance.filter((record) => !(record.employeeId === employeeId && dates.has(record.date) && record.status === "On leave"));
+    for (const month of new Set([...dates].map((date) => date.slice(0, 7)))) {
+      this.recalculateExistingPayrollForEmployee(employeeId, `${month}-01`);
+    }
+    return true;
   }
 
   async registerYearlyBreak(employeeId: string, input: { year: number; startDate: string; endDate: string; notes?: string }, registeredByUserId?: string) {

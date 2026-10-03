@@ -545,6 +545,18 @@ export class BundleInventoryDemo {
     }, ctx);
   }
 
+  async deleteTransaction(transactionId: string) {
+    const before = this.transactions.length;
+    this.transactions = this.transactions.filter((item) => item.id !== transactionId);
+    return this.transactions.length < before;
+  }
+
+  async clearTransactions() {
+    const count = this.transactions.length;
+    this.transactions = [];
+    return count;
+  }
+
   async listTransactions(bundleId?: string) {
     return (bundleId ? this.transactions.filter((item) => item.bundleId === bundleId) : this.transactions)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

@@ -41,6 +41,7 @@ import type {
   StockTransactionType
 } from "../shared/bundleInventory.js";
 import { formatMixedBundleSummary, isOutflowTransaction, requiresDestination } from "../shared/bundleInventory.js";
+import type { RoleName } from "../shared/types";
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-ET", { style: "currency", currency: "ETB", maximumFractionDigits: 0 }).format(value);
@@ -125,7 +126,9 @@ function printBundleLabelWindow(bundles: InventoryBundle[]) {
   popup.document.close();
 }
 
-export function BundleInventoryPanel({ token }: { token: string }) {
+export function BundleInventoryPanel({ token, role }: { token: string; role: RoleName }) {
+  const isOwner = role === "Owner";
+  const canDeleteBundles = role === "Owner" || role === "Manager";
   const queryClient = useQueryClient();
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<BundleQrScannerHandle>(null);
@@ -379,9 +382,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
   });
 
   const handleDeleteBundle = useCallback((bundle: InventoryBundle) => {
-    if (!window.confirm(`Delete bundle ${bundle.bundleNumber}? This cannot be undone.`)) return;
+    if (!window.confirm(`Are you sure you want to remove bundle ${bundle.bundleNumber} (${bundle.remainingPieces} pcs)? Its movement history is removed too. This cannot be undone.`)) return;
     deleteMutation.mutate(bundle.id);
   }, [deleteMutation]);
+
+  const deleteHistoryMutation = useMutation({
+    mutationFn: (remove: () => Promise<unknown>) => remove(),
+    onSuccess: () => {
+      notify("success", "Movement history removed.");
+      queryClient.invalidateQueries({ queryKey: ["bundle-transactions"] });
+    },
+    onError: (error: Error) => notify("error", error.message)
+  });
+
+  const confirmDeleteHistory = (message: string, remove: () => Promise<unknown>) => {
+    if (window.confirm(message)) deleteHistoryMutation.mutate(remove);
+  };
 
   const splitMutation = useMutation({
     mutationFn: async (input: Parameters<typeof api.splitBundle>[1]) => {
@@ -717,14 +733,16 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   {reprintMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Refresh QR code
                 </Button>
-                <Button
-                  variant="danger"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => handleDeleteBundle(selectedBundle)}
-                >
-                  {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  Delete bundle
-                </Button>
+                {canDeleteBundles && (
+                  <Button
+                    variant="danger"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => handleDeleteBundle(selectedBundle)}
+                  >
+                    {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    Delete bundle
+                  </Button>
+                )}
               </div>
             </Card>
           )}
@@ -1110,7 +1128,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
 
       {tab === "history" && (
         <Card>
-          <h3 className="text-lg font-bold">Movement history</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-bold">Movement history</h3>
+            {isOwner && Boolean(transactions.data?.length) && (
+              <Button
+                variant="danger"
+                disabled={deleteHistoryMutation.isPending}
+                onClick={() => confirmDeleteHistory(
+                  `Are you sure you want to remove all ${transactions.data?.length} bundle movement records? Bundle stock is not changed. This cannot be undone.`,
+                  () => api.clearBundleTransactions(token)
+                )}
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear history
+              </Button>
+            )}
+          </div>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="text-slate-500">
@@ -1124,6 +1157,7 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                   <th>To</th>
                   <th>User</th>
                   <th>Reference</th>
+                  {isOwner && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -1138,6 +1172,22 @@ export function BundleInventoryPanel({ token }: { token: string }) {
                     <td>{tx.toWarehouseName || "-"}</td>
                     <td>{tx.userName}</td>
                     <td>{tx.referenceNumber}</td>
+                    {isOwner && (
+                      <td className="text-right">
+                        <Button
+                          variant="ghost"
+                          className="h-8 w-8 px-0 text-rose-600"
+                          aria-label={`Remove ${tx.type} record for ${tx.bundleNumber}`}
+                          disabled={deleteHistoryMutation.isPending}
+                          onClick={() => confirmDeleteHistory(
+                            `Are you sure you want to remove this ${tx.type} record (${tx.quantity} pcs, ${tx.bundleNumber})? Bundle stock is not changed.`,
+                            () => api.deleteBundleTransaction(token, tx.id)
+                          )}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -16,6 +16,7 @@ import {
   Settings,
   Shirt,
   Sun,
+  Trash2,
   Upload,
   Users,
   X
@@ -263,7 +264,7 @@ function AppShell({
           {active === "employees" && <Employees token={session.token} role={session.user.role} />}
           {active === "attendance" && <Attendance token={session.token} role={session.user.role} />}
           {active === "payroll" && <Payroll token={session.token} role={session.user.role} />}
-          {active === "inventory" && <Inventory token={session.token} />}
+          {active === "inventory" && <Inventory token={session.token} role={session.user.role} />}
           {active === "sales" && <Sales token={session.token} />}
           {active === "production" && <Production token={session.token} />}
           {active === "reports" && <Reports token={session.token} />}
@@ -765,6 +766,18 @@ function EmployeeProfileDialog({
       setSalaryReason("");
     }
   });
+  const deleteHistory = useMutation({
+    mutationFn: (remove: () => Promise<unknown>) => remove(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["salary-history", employee.id] });
+      queryClient.invalidateQueries({ queryKey: ["yearly-breaks", employee.id] });
+      queryClient.invalidateQueries({ queryKey: ["yearly-break-eligibility"] });
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+    }
+  });
+  const confirmDeleteHistory = (message: string, remove: () => Promise<unknown>) => {
+    if (window.confirm(message)) deleteHistory.mutate(remove);
+  };
 
   return (
     <>
@@ -863,10 +876,24 @@ function EmployeeProfileDialog({
             </div>
           )}
           <div className="mt-4 border-t pt-4 dark:border-slate-800">
-            <h4 className="font-bold">Salary history</h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold">Salary history</h4>
+              {isOwner && Boolean(salaryHistory.data?.length) && (
+                <Button
+                  variant="danger"
+                  disabled={deleteHistory.isPending}
+                  onClick={() => confirmDeleteHistory(
+                    `Are you sure you want to remove all salary history for ${employee.fullName}? The current salary is not changed. This cannot be undone.`,
+                    () => api.clearSalaryHistory(token, employee.id)
+                  )}
+                >
+                  Clear salary history
+                </Button>
+              )}
+            </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="text-slate-500"><tr><th className="py-2">Effective date</th><th>Previous</th><th>New</th><th>Reason</th><th>Changed by</th></tr></thead>
+                <thead className="text-slate-500"><tr><th className="py-2">Effective date</th><th>Previous</th><th>New</th><th>Reason</th><th>Changed by</th>{isOwner && <th />}</tr></thead>
                 <tbody>
                   {salaryHistory.data?.length ? salaryHistory.data.map((entry: SalaryHistoryEntry) => (
                     <tr key={entry.id} className="border-t dark:border-slate-800">
@@ -875,8 +902,24 @@ function EmployeeProfileDialog({
                       <td className="font-semibold text-emerald-700 dark:text-emerald-300">{currency(entry.newSalary)}</td>
                       <td>{entry.reason || "—"}</td>
                       <td>{entry.changedByName || "—"}</td>
+                      {isOwner && (
+                        <td className="text-right">
+                          <Button
+                            variant="ghost"
+                            className="h-8 w-8 px-0 text-rose-600"
+                            aria-label="Remove salary history entry"
+                            disabled={deleteHistory.isPending}
+                            onClick={() => confirmDeleteHistory(
+                              `Are you sure you want to remove the salary change of ${formatDate(entry.effectiveDate)} (${currency(entry.previousSalary)} to ${currency(entry.newSalary)})? The current salary is not changed.`,
+                              () => api.deleteSalaryHistoryEntry(token, employee.id, entry.id)
+                            )}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      )}
                     </tr>
-                  )) : <tr><td colSpan={5} className="py-3 text-slate-500">No salary history yet.</td></tr>}
+                  )) : <tr><td colSpan={isOwner ? 6 : 5} className="py-3 text-slate-500">No salary history yet.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -885,13 +928,30 @@ function EmployeeProfileDialog({
             <h4 className="font-bold">Yearly breaks</h4>
             <div className="mt-3 grid gap-2">
               {yearlyBreaks.data?.length ? yearlyBreaks.data.map((item) => (
-                <div key={item.id} className="rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
-                  <p className="font-semibold">{item.year}: {formatDate(item.startDate)} to {formatDate(item.endDate)} ({item.days} days)</p>
-                  <p className="text-slate-500">{item.status}{item.notes ? ` · ${item.notes}` : ""}</p>
+                <div key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 p-3 text-sm dark:border-slate-800">
+                  <div>
+                    <p className="font-semibold">{item.year}: {formatDate(item.startDate)} to {formatDate(item.endDate)} ({item.days} days)</p>
+                    <p className="text-slate-500">{item.status}{item.notes ? ` · ${item.notes}` : ""}</p>
+                  </div>
+                  {isOwner && (
+                    <Button
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0 px-0 text-rose-600"
+                      aria-label="Remove yearly break"
+                      disabled={deleteHistory.isPending}
+                      onClick={() => confirmDeleteHistory(
+                        `Are you sure you want to remove the ${item.year} yearly break (${formatDate(item.startDate)} to ${formatDate(item.endDate)})? Those days will no longer be marked as on leave.`,
+                        () => api.deleteYearlyBreak(token, employee.id, item.id)
+                      )}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               )) : <p className="text-sm text-slate-500">No yearly break registered yet.</p>}
             </div>
           </div>
+          {deleteHistory.error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{deleteHistory.error.message}</p>}
           {isOwner && onEdit && (
             <div className="action-row mt-4 border-t pt-4 dark:border-slate-800">
               <Button variant="secondary" onClick={onEdit}>Edit employee</Button>
@@ -1591,7 +1651,8 @@ function isPaidStatus(status: string) {
   return status.toLowerCase() === "paid";
 }
 
-function Inventory({ token }: { token: string }) {
+function Inventory({ token, role }: { token: string; role: RoleName }) {
+  const isOwner = role === "Owner";
   const [inventoryTab, setInventoryTab] = useState<"bundles" | "legacy">("bundles");
   const { formatDateTime } = usePreferences();
   const queryClient = useQueryClient();
@@ -1604,6 +1665,15 @@ function Inventory({ token }: { token: string }) {
   const stockMove = useMutation({ mutationFn: (body: Record<string, unknown>) => api.moveStock(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); queryClient.invalidateQueries({ queryKey: ["inventory"] }); } });
   const rawCreate = useMutation({ mutationFn: (body: Omit<RawMaterial, "id">) => api.createRawMaterial(token, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
   const rawUse = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.useRawMaterial(token, id, body), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["raw"] }); queryClient.invalidateQueries({ queryKey: ["raw-history"] }); queryClient.invalidateQueries({ queryKey: ["dashboard"] }); } });
+  const ownerDelete = useMutation({
+    mutationFn: (remove: () => Promise<unknown>) => remove(),
+    onSuccess: () => {
+      for (const key of ["products", "inventory", "raw", "raw-history", "dashboard", "reports"]) queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  });
+  const confirmOwnerDelete = (message: string, remove: () => Promise<unknown>) => {
+    if (window.confirm(message)) ownerDelete.mutate(remove);
+  };
   const firstProduct = products.data?.[0];
   const firstRaw = rawMaterials.data?.[0];
 
@@ -1621,7 +1691,7 @@ function Inventory({ token }: { token: string }) {
       </div>
 
       {inventoryTab === "bundles" ? (
-        <BundleInventoryPanel token={token} />
+        <BundleInventoryPanel token={token} role={role} />
       ) : (
       <>
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
@@ -1640,8 +1710,9 @@ function Inventory({ token }: { token: string }) {
         <Card>
           <h2 className="text-xl font-black">Products</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {products.data?.map((product) => <div key={product.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold">{product.productName}</p><p className="text-sm text-slate-500">{product.sku} · {product.model} · {product.color}/{product.size}</p></div><Badge className={product.quantity < 20 ? "bg-amber-100 text-amber-800" : ""}>{product.quantity} pcs</Badge></div><p className="mt-3 text-sm">{currency(product.costPrice)} cost · {currency(product.sellingPrice)} sell</p>{product.qrCode && <img src={product.qrCode} alt={`${product.sku} QR`} className="mt-3 h-20 w-20" />}</div>)}
+            {products.data?.map((product) => <div key={product.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold">{product.productName}</p><p className="text-sm text-slate-500">{product.sku} · {product.model} · {product.color}/{product.size}</p></div><Badge className={product.quantity < 20 ? "bg-amber-100 text-amber-800" : ""}>{product.quantity} pcs</Badge></div><p className="mt-3 text-sm">{currency(product.costPrice)} cost · {currency(product.sellingPrice)} sell</p>{product.qrCode && <img src={product.qrCode} alt={`${product.sku} QR`} className="mt-3 h-20 w-20" />}{isOwner && <Button variant="danger" className="mt-3" disabled={ownerDelete.isPending} onClick={() => confirmOwnerDelete(`Are you sure you want to remove ${product.productName} (${product.sku})? Its stock movement history is removed too. This cannot be undone.`, () => api.deleteProduct(token, product.id))}><Trash2 className="mr-2 h-4 w-4" />Delete product</Button>}</div>)}
           </div>
+          {ownerDelete.error && <p className="mt-3 text-sm text-rose-700">{ownerDelete.error.message}</p>}
         </Card>
       </div>
       <div className="grid gap-6 xl:grid-cols-2">
@@ -1663,7 +1734,7 @@ function Inventory({ token }: { token: string }) {
             <div className="grid gap-3 md:grid-cols-4"><Field label="Unit"><Input name="unit" placeholder="meter" required /></Field><Field label="Quantity (total stock)"><Input name="quantity" type="number" step="0.01" required /></Field><Field label="Number of piles"><Input name="pileCount" type="number" min={1} step={1} defaultValue={1} required /></Field><Field label="Reorder level"><Input name="reorderLevel" type="number" step="0.01" required /></Field></div>
             <div className="grid gap-3 md:grid-cols-[1fr_auto]"><Field label="Unit cost"><Input name="unitCost" type="number" step="0.01" required /></Field><Button disabled={rawCreate.isPending} className="self-end">{rawCreate.isPending ? "Saving..." : "Add raw material"}</Button></div>
           </form>
-          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category}) · {material.pileCount} pile{material.pileCount === 1 ? "" : "s"} · {currency(material.unitCost)} / {material.unit}</span></span><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge></div>)}</div>
+          <div className="mt-4 grid gap-2">{rawMaterials.data?.map((material) => <div key={material.id} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-sm"><span>{material.name} <span className="text-slate-500">({material.category}) · {material.pileCount} pile{material.pileCount === 1 ? "" : "s"} · {currency(material.unitCost)} / {material.unit}</span></span><span className="flex items-center gap-2"><Badge className={material.quantity < material.reorderLevel ? "bg-amber-100 text-amber-800" : ""}>{material.quantity} {material.unit}</Badge>{isOwner && <Button variant="ghost" aria-label={`Delete ${material.name}`} title="Delete raw material" disabled={ownerDelete.isPending} onClick={() => confirmOwnerDelete(`Are you sure you want to remove raw material ${material.name}? Its usage history is removed too. This cannot be undone.`, () => api.deleteRawMaterial(token, material.id))}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</span></div>)}</div>
         </Card>
       </div>
       <Card className="print:shadow-none">
@@ -1671,6 +1742,8 @@ function Inventory({ token }: { token: string }) {
           <div><h3 className="text-lg font-bold">Inventory usage records</h3><p className="text-sm text-slate-500">Permanent product, raw material, and POS movement history.</p></div>
           <div className="action-row">
             <Button variant="secondary" onClick={() => window.print()}>Print / Save PDF</Button>
+            {isOwner && <Button variant="danger" disabled={ownerDelete.isPending || !inventory.data?.length} onClick={() => confirmOwnerDelete("Are you sure you want to remove all product stock movement history? Current stock quantities are not changed. This cannot be undone.", () => api.clearInventoryMovements(token))}><Trash2 className="mr-2 h-4 w-4" />Clear stock history</Button>}
+            {isOwner && <Button variant="danger" disabled={ownerDelete.isPending || !rawHistory.data?.length} onClick={() => confirmOwnerDelete("Are you sure you want to remove all raw material usage history? Current raw material quantities are not changed. This cannot be undone.", () => api.clearRawMaterialMovements(token))}><Trash2 className="mr-2 h-4 w-4" />Clear raw material history</Button>}
             <Button onClick={() => exportCsv("inventory-history.csv", [["Type", "Item", "Quantity", "Unit", "Reference", "Date"], ...(inventory.data || []).map((m) => [m.type, m.productName, m.quantity, "pcs", m.reference, m.createdAt]), ...(rawHistory.data || []).map((m) => [m.type, m.rawMaterialName, m.quantity, m.unit, m.reference, m.createdAt]), ...(sales.data || []).flatMap((sale) => sale.items.map((item) => ["POS Sale", item.productName, item.quantity, "pcs", sale.invoiceNumber, sale.createdAt]))])}>Export Excel CSV</Button>
           </div>
         </div>
@@ -1684,14 +1757,15 @@ function Inventory({ token }: { token: string }) {
             <Button disabled={rawUse.isPending}>{rawUse.isPending ? "Saving..." : "Record usage"}</Button>
           </div>
         </form>
+        {ownerDelete.error && <p className="mt-3 text-sm text-rose-700 print:hidden">{ownerDelete.error.message}</p>}
         <HorizontalScrollControls targetId="inventory-history-scroll" />
         <div id="inventory-history-scroll" className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[2400px] text-left text-sm">
-            <thead className="text-slate-500"><tr><th id="inventory-history-scroll-left" className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th id="inventory-history-scroll-right">Date</th></tr></thead>
+            <thead className="text-slate-500"><tr><th id="inventory-history-scroll-left" className="py-2">Type</th><th>Item</th><th>Quantity</th><th>Unit</th><th>Reference</th><th id="inventory-history-scroll-right">Date</th>{isOwner && <th className="print:hidden">Remove</th>}</tr></thead>
             <tbody>
-              {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td></tr>)}
-              {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td></tr>)}
-              {sales.data?.flatMap((sale) => sale.items.map((item) => <tr key={`sale-${sale.id}-${item.productId}`} className="border-t"><td className="py-2">POS Sale</td><td>{item.productName}</td><td>{item.quantity}</td><td>pcs</td><td>{sale.invoiceNumber}</td><td>{formatDateTime(sale.createdAt)}</td></tr>))}
+              {inventory.data?.map((m) => <tr key={`inv-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.productName}</td><td>{m.quantity}</td><td>pcs</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td>{isOwner && <td className="print:hidden"><Button variant="ghost" aria-label="Delete stock record" title="Delete record" disabled={ownerDelete.isPending} onClick={() => confirmOwnerDelete(`Are you sure you want to remove this ${m.type} record for ${m.productName} (${m.quantity} pcs)? Current stock is not changed.`, () => api.deleteInventoryMovement(token, m.id))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></td>}</tr>)}
+              {rawHistory.data?.map((m) => <tr key={`raw-${m.id}`} className="border-t"><td className="py-2">{m.type}</td><td>{m.rawMaterialName}</td><td>{m.quantity}</td><td>{m.unit}</td><td>{m.reference || "-"}</td><td>{formatDateTime(m.createdAt)}</td>{isOwner && <td className="print:hidden"><Button variant="ghost" aria-label="Delete raw material record" title="Delete record" disabled={ownerDelete.isPending} onClick={() => confirmOwnerDelete(`Are you sure you want to remove this ${m.type} record for ${m.rawMaterialName} (${m.quantity} ${m.unit})? Current raw material quantity is not changed.`, () => api.deleteRawMaterialMovement(token, m.id))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></td>}</tr>)}
+              {sales.data?.flatMap((sale) => sale.items.map((item) => <tr key={`sale-${sale.id}-${item.productId}`} className="border-t"><td className="py-2">POS Sale</td><td>{item.productName}</td><td>{item.quantity}</td><td>pcs</td><td>{sale.invoiceNumber}</td><td>{formatDateTime(sale.createdAt)}</td>{isOwner && <td className="print:hidden text-xs text-slate-400">Sales record</td>}</tr>))}
             </tbody>
           </table>
         </div>

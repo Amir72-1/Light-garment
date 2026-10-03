@@ -984,6 +984,45 @@ export class PrismaRepository {
     return rows.map((movement): RawMaterialMovement => ({ id: movement.id, rawMaterialId: movement.rawMaterialId, rawMaterialName: movement.rawMaterial.name, type: movement.type as RawMaterialMovement["type"], quantity: Number(movement.quantity), unit: movement.unit, reference: movement.reference ?? undefined, note: movement.note ?? undefined, createdAt: movement.createdAt.toISOString() }));
   }
 
+  async deleteProduct(productId: string) {
+    const sold = await this.prisma.saleItem.count({ where: { productId } });
+    if (sold > 0) throw new Error("Cannot delete a product that has POS sales. Its sales records must be kept.");
+    const result = await this.prisma.product.deleteMany({ where: { id: productId } });
+    return result.count > 0;
+  }
+
+  async deleteRawMaterial(rawMaterialId: string) {
+    const result = await this.prisma.rawMaterial.deleteMany({ where: { id: rawMaterialId } });
+    return result.count > 0;
+  }
+
+  async deleteInventoryMovement(movementId: string) {
+    const result = await this.prisma.inventory.deleteMany({ where: { id: movementId } });
+    return result.count > 0;
+  }
+
+  async clearInventoryMovements() {
+    return (await this.prisma.inventory.deleteMany()).count;
+  }
+
+  async deleteRawMaterialMovement(movementId: string) {
+    const result = await this.prisma.rawMaterialMovement.deleteMany({ where: { id: movementId } });
+    return result.count > 0;
+  }
+
+  async clearRawMaterialMovements() {
+    return (await this.prisma.rawMaterialMovement.deleteMany()).count;
+  }
+
+  async deleteStockTransaction(transactionId: string) {
+    const result = await this.prisma.stockTransaction.deleteMany({ where: { id: transactionId } });
+    return result.count > 0;
+  }
+
+  async clearStockTransactions() {
+    return (await this.prisma.stockTransaction.deleteMany()).count;
+  }
+
   async listProduction() {
     const rows = await this.prisma.productionStage.findMany({ include: { product: true }, orderBy: { createdAt: "asc" } });
     return rows.map((row): ProductionStage => ({ id: row.id, productId: row.productId, productName: row.product.productName, stage: stageFromDb[row.stage], status: stageStatusFromDb[row.status], assignedTo: row.assignedTo ?? undefined, startedAt: row.startedAt?.toISOString(), completedAt: row.completedAt?.toISOString(), notes: row.notes ?? undefined }));
@@ -1077,6 +1116,27 @@ export class PrismaRepository {
       orderBy: { effectiveDate: "desc" }
     });
     return rows.map(salaryHistoryFromDb);
+  }
+
+  async deleteSalaryHistoryEntry(employeeId: string, entryId: string) {
+    const result = await this.prisma.salaryHistory.deleteMany({ where: { id: entryId, employeeId } });
+    return result.count > 0;
+  }
+
+  async clearSalaryHistory(employeeId: string) {
+    return (await this.prisma.salaryHistory.deleteMany({ where: { employeeId } })).count;
+  }
+
+  async deleteYearlyBreak(employeeId: string, breakId: string) {
+    const row = await this.prisma.yearlyBreak.findFirst({ where: { id: breakId, employeeId } });
+    if (!row) return false;
+    await this.prisma.yearlyBreak.delete({ where: { id: breakId } });
+    const dates = datesBetween(isoDate(row.startDate), isoDate(row.endDate));
+    await this.prisma.attendance.deleteMany({ where: { employeeId, date: { in: dates }, status: "ON_LEAVE" } });
+    for (const month of new Set(dates.map((date) => date.slice(0, 7)))) {
+      await this.recalculateExistingPayrollForEmployee(employeeId, `${month}-01`);
+    }
+    return true;
   }
 
   async increaseEmployeeSalary(employeeId: string, input: { newSalary: number; effectiveDate?: string; reason?: string }, changedByUserId?: string) {

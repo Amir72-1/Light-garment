@@ -526,6 +526,20 @@ export async function createApp() {
     response.json(await repository.listSalaryHistory(String(request.params.id)));
   }));
 
+  app.delete("/api/employees/:id/salary-history", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    response.json({ deleted: await repository.clearSalaryHistory(String(request.params.id)) });
+  }));
+
+  app.delete("/api/employees/:id/salary-history/:entryId", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteSalaryHistoryEntry(String(request.params.id), String(request.params.entryId));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
+  app.delete("/api/employees/:id/yearly-breaks/:breakId", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteYearlyBreak(String(request.params.id), String(request.params.breakId));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
   app.post("/api/employees/:id/salary-increase", auth, allow("Owner"), asyncRoute(async (request, response) => {
     try {
       const parsed = salaryIncreaseSchema.parse(request.body);
@@ -653,6 +667,20 @@ export async function createApp() {
     response.status(201).json(await repository.createProduct(productSchema.parse(request.body)));
   }));
 
+  app.delete("/api/products/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteProduct(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
+  app.delete("/api/inventory/movements", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json({ deleted: await repository.clearInventoryMovements() });
+  }));
+
+  app.delete("/api/inventory/movements/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteInventoryMovement(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
   app.get("/api/inventory", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
     response.json(await repository.listInventory());
   }));
@@ -695,6 +723,15 @@ export async function createApp() {
 
   app.post("/api/bundles/colors", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {
     response.status(201).json(await repository.createBundleColor(createColorSchema.parse(request.body)));
+  }));
+
+  app.delete("/api/bundles/transactions", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json({ deleted: await repository.clearStockTransactions() });
+  }));
+
+  app.delete("/api/bundles/transactions/:transactionId", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteStockTransaction(String(request.params.transactionId));
+    response.status(deleted ? 204 : 404).end();
   }));
 
   app.delete("/api/bundles/:id", auth, allow("Owner", "Manager"), asyncRoute(async (request, response) => {
@@ -742,6 +779,20 @@ export async function createApp() {
 
   app.get("/api/raw-materials/history", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (_request, response) => {
     response.json(await repository.listRawMaterialMovements());
+  }));
+
+  app.delete("/api/raw-materials/history", auth, allow("Owner"), asyncRoute(async (_request, response) => {
+    response.json({ deleted: await repository.clearRawMaterialMovements() });
+  }));
+
+  app.delete("/api/raw-materials/history/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteRawMaterialMovement(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
+  }));
+
+  app.delete("/api/raw-materials/:id", auth, allow("Owner"), asyncRoute(async (request, response) => {
+    const deleted = await repository.deleteRawMaterial(String(request.params.id));
+    response.status(deleted ? 204 : 404).end();
   }));
 
   app.post("/api/raw-materials/:id/use", auth, allow("Owner", "Manager", "Storekeeper"), asyncRoute(async (request, response) => {

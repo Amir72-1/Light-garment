@@ -922,4 +922,125 @@ describe("Bundle inventory API", () => {
     expect(moved.body.source.remainingPieces).toBe(20);
     expect(moved.body.source.items.find((item: { color: string; size: string }) => item.color === "Blue" && item.size === "L").remaining).toBe(5);
   });
+
+  it("lets only the owner delete registered products and raw materials", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const product = await request(app).post("/api/products").set(auth)
+      .send({ productName: "Delete Me Shirt", model: "DM", color: "Red", size: "M", quantity: 10, costPrice: 100, sellingPrice: 200 })
+      .expect(201);
+    const raw = await request(app).post("/api/raw-materials").set(auth)
+      .send({ name: "Delete Me Thread", category: "Thread", unit: "cone", quantity: 5, pileCount: 1, reorderLevel: 1, unitCost: 10 })
+      .expect(201);
+    await request(app).post(`/api/raw-materials/${raw.body.id}/use`).set(auth).send({ quantity: 1 }).expect(201);
+
+    const manager = await login("manager@lightgarment.example");
+    await request(manager.app).delete(`/api/products/${product.body.id}`).set("Authorization", `Bearer ${manager.token}`).expect(403);
+    await request(manager.app).delete(`/api/raw-materials/${raw.body.id}`).set("Authorization", `Bearer ${manager.token}`).expect(403);
+
+    await request(app).delete(`/api/products/${product.body.id}`).set(auth).expect(204);
+    await request(app).delete(`/api/products/${product.body.id}`).set(auth).expect(404);
+    await request(app).delete(`/api/raw-materials/${raw.body.id}`).set(auth).expect(204);
+
+    const products = await request(app).get("/api/products").set(auth).expect(200);
+    expect(products.body.some((item: { id: string }) => item.id === product.body.id)).toBe(false);
+    const rawRows = await request(app).get("/api/raw-materials").set(auth).expect(200);
+    expect(rawRows.body.some((item: { id: string }) => item.id === raw.body.id)).toBe(false);
+    const rawHistory = await request(app).get("/api/raw-materials/history").set(auth).expect(200);
+    expect(rawHistory.body.some((item: { rawMaterialId: string }) => item.rawMaterialId === raw.body.id)).toBe(false);
+  });
+
+  it("keeps products that have POS sales", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const products = await request(app).get("/api/products").set(auth).expect(200);
+    const product = products.body[0];
+    await request(app).post("/api/sales").set(auth)
+      .send({ customerName: "Walk-in", items: [{ productId: product.id, quantity: 1 }], amountPaid: product.sellingPrice, paymentMethod: "Cash" })
+      .expect(201);
+    const blocked = await request(app).delete(`/api/products/${product.id}`).set(auth).expect(409);
+    expect(blocked.body.message).toMatch(/POS sales/);
+  });
+
+  it("lets the owner delete inventory history without changing stock", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const products = await request(app).get("/api/products").set(auth).expect(200);
+    const product = products.body[0];
+    await request(app).post("/api/inventory/movements").set(auth).send({ productId: product.id, type: "Stock in", quantity: 4, reference: "DEL-TEST" }).expect(201);
+    const before = await request(app).get("/api/products").set(auth).expect(200);
+    const stockBefore = before.body.find((item: { id: string }) => item.id === product.id).quantity;
+
+    const movements = await request(app).get("/api/inventory").set(auth).expect(200);
+    const movement = movements.body.find((item: { reference?: string }) => item.reference === "DEL-TEST");
+    const store = await login("store@lightgarment.example");
+    await request(store.app).delete(`/api/inventory/movements/${movement.id}`).set("Authorization", `Bearer ${store.token}`).expect(403);
+    await request(app).delete(`/api/inventory/movements/${movement.id}`).set(auth).expect(204);
+
+    const after = await request(app).get("/api/inventory").set(auth).expect(200);
+    expect(after.body.some((item: { id: string }) => item.id === movement.id)).toBe(false);
+    const cleared = await request(app).delete("/api/inventory/movements").set(auth).expect(200);
+    expect(cleared.body.deleted).toBeGreaterThanOrEqual(0);
+    expect((await request(app).get("/api/inventory").set(auth).expect(200)).body).toHaveLength(0);
+
+    const rawRows = await request(app).get("/api/raw-materials").set(auth).expect(200);
+    const used = await request(app).post(`/api/raw-materials/${rawRows.body[0].id}/use`).set(auth).send({ quantity: 1 }).expect(201);
+    await request(app).delete(`/api/raw-materials/history/${used.body.id}`).set(auth).expect(204);
+    await request(app).post(`/api/raw-materials/${rawRows.body[0].id}/use`).set(auth).send({ quantity: 1 }).expect(201);
+    await request(app).delete("/api/raw-materials/history").set(auth).expect(200);
+    expect((await request(app).get("/api/raw-materials/history").set(auth).expect(200)).body).toHaveLength(0);
+
+    const finalProducts = await request(app).get("/api/products").set(auth).expect(200);
+    expect(finalProducts.body.find((item: { id: string }) => item.id === product.id).quantity).toBe(stockBefore);
+  });
+
+  it("lets the owner delete bundle movement history", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const metadata = await request(app).get("/api/bundles/metadata").set(auth).expect(200);
+    await request(app).post("/api/bundles/register").set(auth)
+      .send({ productName: "History Shirt", style: "Slim", fabric: "Cotton", color: "White", size: "M", bundleQuantity: 1, piecesPerBundle: 10, unitCost: 100, sellingPrice: 200, warehouseId: metadata.body.warehouses[0].id })
+      .expect(201);
+    const transactions = await request(app).get("/api/bundles/transactions").set(auth).expect(200);
+    expect(transactions.body.length).toBeGreaterThan(0);
+
+    const manager = await login("manager@lightgarment.example");
+    await request(manager.app).delete("/api/bundles/transactions").set("Authorization", `Bearer ${manager.token}`).expect(403);
+
+    await request(app).delete(`/api/bundles/transactions/${transactions.body[0].id}`).set(auth).expect(204);
+    await request(app).delete("/api/bundles/transactions").set(auth).expect(200);
+    expect((await request(app).get("/api/bundles/transactions").set(auth).expect(200)).body).toHaveLength(0);
+    const bundles = await request(app).get("/api/bundles").set(auth).expect(200);
+    expect(bundles.body.some((bundle: { productName: string }) => bundle.productName === "History Shirt")).toBe(true);
+  });
+
+  it("lets the owner delete salary history and yearly breaks", async () => {
+    const { app, token } = await login();
+    const auth = { Authorization: `Bearer ${token}` };
+    const employees = await request(app).get("/api/employees?pageSize=10").set(auth).expect(200);
+    const employee = employees.body.data[0];
+    await request(app).post(`/api/employees/${employee.id}/salary-increase`).set(auth).send({ newSalary: employee.salary + 500 }).expect(200);
+    await request(app).post(`/api/employees/${employee.id}/salary-increase`).set(auth).send({ newSalary: employee.salary + 900 }).expect(200);
+    const history = await request(app).get(`/api/employees/${employee.id}/salary-history`).set(auth).expect(200);
+
+    const manager = await login("manager@lightgarment.example");
+    await request(manager.app).delete(`/api/employees/${employee.id}/salary-history/${history.body[0].id}`).set("Authorization", `Bearer ${manager.token}`).expect(403);
+
+    await request(app).delete(`/api/employees/${employee.id}/salary-history/${history.body[0].id}`).set(auth).expect(204);
+    await request(app).delete(`/api/employees/${employee.id}/salary-history`).set(auth).expect(200);
+    expect((await request(app).get(`/api/employees/${employee.id}/salary-history`).set(auth).expect(200)).body).toHaveLength(0);
+    const refreshed = await request(app).get(`/api/employees/${employee.id}`).set(auth).expect(200);
+    expect(refreshed.body.salary).toBe(employee.salary + 900);
+
+    const eligibility = await request(app).get("/api/yearly-breaks/eligibility?year=2026").set(auth).expect(200);
+    const eligible = eligibility.body.find((row: { eligible: boolean }) => row.eligible);
+    const leave = await request(app).post(`/api/employees/${eligible.employee.id}/yearly-break`).set(auth)
+      .send({ year: 2026, startDate: "2026-08-03", endDate: "2026-08-05" })
+      .expect(201);
+    await request(app).delete(`/api/employees/${eligible.employee.id}/yearly-breaks/${leave.body.id}`).set(auth).expect(204);
+    const breaks = await request(app).get(`/api/employees/${eligible.employee.id}/yearly-breaks`).set(auth).expect(200);
+    expect(breaks.body.some((item: { id: string }) => item.id === leave.body.id)).toBe(false);
+    const attendance = await request(app).get("/api/attendance?date=2026-08-04").set(auth).expect(200);
+    expect(attendance.body.some((record: { employeeId: string; status: string }) => record.employeeId === eligible.employee.id && record.status === "On leave")).toBe(false);
+  });
 });
