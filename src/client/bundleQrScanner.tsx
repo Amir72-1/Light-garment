@@ -180,7 +180,7 @@ export const BundleQrScanner = forwardRef<BundleQrScannerHandle, BundleQrScanner
   if (!visible) return null;
 
   return (
-    <div className={`bundle-qr-scanner${detected ? " bundle-qr-scanner--detected" : ""}`}>
+    <div className={`bundle-qr-scanner${cameraLive ? " bundle-qr-scanner--live" : ""}${detected ? " bundle-qr-scanner--detected" : ""}`}>
       <video ref={videoRef} className="bundle-qr-scanner__video" playsInline muted autoPlay />
       {!cameraLive && <div className="bundle-qr-scanner__pulse" aria-hidden />}
       <div className="bundle-qr-scanner__hint">

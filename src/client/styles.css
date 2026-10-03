@@ -174,7 +174,9 @@ html.dark .action-row::-webkit-scrollbar-thumb {
 
 .bundle-qr-scanner {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   overflow: hidden;
   border: 0;
@@ -187,8 +189,13 @@ html.dark .action-row::-webkit-scrollbar-thumb {
 .bundle-qr-scanner__video {
   display: block;
   width: 100%;
-  height: clamp(320px, 72vw, 520px);
-  object-fit: cover;
+  height: auto;
+  max-height: min(72vh, 640px);
+  object-fit: contain;
+}
+
+.bundle-qr-scanner.bundle-qr-scanner--live {
+  min-height: 0;
 }
 
 .bundle-qr-scanner--detected .bundle-qr-scanner__video {
@@ -274,9 +281,6 @@ html.dark .action-row::-webkit-scrollbar-thumb {
     border-radius: 1.25rem;
   }
 
-  .bundle-qr-scanner__video {
-    height: min(72vh, 640px);
-  }
 }
 
 @keyframes bundle-qr-pulse {

@@ -28,19 +28,23 @@ function sourceSize(source: DecodeSource) {
 
 type Region = { x: number; y: number; width: number; height: number };
 
-function decodeRegion(source: DecodeSource, canvas: HTMLCanvasElement, region: Region, maxSide: number, invert: boolean) {
-  const scale = Math.min(1, maxSide / Math.max(region.width, region.height));
+function decodeRegion(source: DecodeSource, canvas: HTMLCanvasElement, region: Region, scale: number, invert: boolean) {
   const width = Math.max(1, Math.round(region.width * scale));
   const height = Math.max(1, Math.round(region.height * scale));
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return null;
-  context.imageSmoothingEnabled = scale < 1;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   context.drawImage(source, region.x, region.y, region.width, region.height, 0, 0, width, height);
   const pixels = context.getImageData(0, 0, width, height);
   const result = jsQR(pixels.data, width, height, { inversionAttempts: invert ? "attemptBoth" : "dontInvert" });
   return result?.data?.trim() || null;
+}
+
+function scaleToFit(region: Region, scale: number, maxSide: number) {
+  return Math.min(scale, maxSide / Math.max(region.width, region.height));
 }
 
 function centerRegion(width: number, height: number, fraction: number): Region {
@@ -59,17 +63,25 @@ async function decodeNative(source: DecodeSource) {
   }
 }
 
-/**
- * Decodes one live camera frame at the camera's own resolution (not the smaller on-screen preview).
- * `attempt` alternates between the whole frame and a center crop so each frame stays cheap.
- */
+// Small or dense codes need the crop enlarged before jsQR can separate the modules, so the passes rotate
+// between crops and zoom levels; one pass runs per frame to keep the preview smooth.
+// `fraction` is the centered square crop as a share of the frame's short side; 0 means the whole frame.
+const VIDEO_PASSES = [
+  { fraction: 1, scale: 1 },
+  { fraction: 1, scale: 1.5 },
+  { fraction: 0, scale: 1 },
+  { fraction: 0.6, scale: 2 }
+];
+
+/** Decodes one live camera frame at the camera's own resolution, not the smaller on-screen preview. */
 export async function decodeVideoFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement, attempt: number) {
   const { width, height } = sourceSize(video);
   if (!width || !height) return null;
   const native = await decodeNative(video);
   if (native) return native;
-  const region = attempt % 2 === 0 ? { x: 0, y: 0, width, height } : centerRegion(width, height, 0.6);
-  return decodeRegion(video, canvas, region, 1280, attempt % 4 === 3);
+  const pass = VIDEO_PASSES[attempt % VIDEO_PASSES.length];
+  const region = pass.fraction === 0 ? { x: 0, y: 0, width, height } : centerRegion(width, height, pass.fraction);
+  return decodeRegion(video, canvas, region, scaleToFit(region, pass.scale, 1280), attempt % 8 === 7);
 }
 
 async function loadImage(file: Blob) {
@@ -102,14 +114,15 @@ export async function decodeImageFile(file: Blob) {
   const full = { x: 0, y: 0, width, height };
   const attempts: Array<[Region, number]> = [
     [full, 1600],
-    [full, 1000],
     [centerRegion(width, height, 0.7), 1600],
+    [full, 1000],
+    [centerRegion(width, height, 0.45), 1400],
     [full, 2400],
-    [centerRegion(width, height, 0.45), 1200],
+    [centerRegion(width, height, 0.3), 1200],
     [full, 700]
   ];
   for (const [region, maxSide] of attempts) {
-    const code = decodeRegion(image, canvas, region, maxSide, true);
+    const code = decodeRegion(image, canvas, region, maxSide / Math.max(region.width, region.height), true);
     if (code) return code;
   }
   return null;

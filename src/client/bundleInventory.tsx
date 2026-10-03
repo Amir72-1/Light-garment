@@ -556,7 +556,7 @@ export function BundleInventoryPanel({ token, role }: { token: string; role: Rol
               {!cameraActive && (
                 <div className="bundle-scan-placeholder">
                   <ScanLine className="h-10 w-10 text-emerald-600" />
-                  <p className="mt-3 text-sm font-semibold text-slate-700">Tap Scan to open your camera</p>
+                  <p className="mt-3 text-sm font-semibold text-slate-200">Open the camera or scan a QR code from a photo</p>
                 </div>
               )}
             </div>
