@@ -2,6 +2,8 @@
 
 Production-ready garment ERP web application for Light Garment Manufacturing PLC.
 
+**Public marketing website:** [Light Garment Manufacturing PLC](https://amir72-1.github.io/Light-garment-website/) (separate repository: `Light-garment-website`).
+
 ## Stack
 
 - React + TypeScript + Vite
